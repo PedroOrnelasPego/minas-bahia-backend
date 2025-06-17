@@ -2,161 +2,134 @@ import express from "express";
 import multer from "multer";
 import { BlobServiceClient } from "@azure/storage-blob";
 import dotenv from "dotenv";
+
 dotenv.config();
 
 const router = express.Router();
+const upload = multer({ storage: multer.memoryStorage() });
 
-// Configuração do Multer para receber arquivos
-const storage = multer.memoryStorage();
-const upload = multer({ storage });
-
-// Conexão com o Azure Blob Storage
-const AZURE_STORAGE_CONNECTION_STRING =
-  process.env.AZURE_STORAGE_CONNECTION_STRING;
-const blobServiceClient = BlobServiceClient.fromConnectionString(
-  AZURE_STORAGE_CONNECTION_STRING
-);
+// Azure Blob Storage
 const containerName = "certificados";
+const blobServiceClient = BlobServiceClient.fromConnectionString(
+  process.env.AZURE_STORAGE_CONNECTION_STRING
+);
 
-// POST /upload?email=usuario@email.com
+// Utilitário: nome do blob formatado
+const gerarNomeBlob = (email, originalName) =>
+  `${email}/${Date.now()}-${originalName}`;
+
+// POST - Enviar novo arquivo
 router.post("/", upload.single("arquivo"), async (req, res) => {
-  const email = req.query.email;
+  const { email } = req.query;
   const arquivo = req.file;
 
-  if (!email || !arquivo) {
+  if (!email || !arquivo)
     return res.status(400).json({ erro: "Email e arquivo são obrigatórios." });
-  }
 
   try {
     const containerClient = blobServiceClient.getContainerClient(containerName);
     await containerClient.createIfNotExists();
 
-    const blobName = `${email}/${Date.now()}-${arquivo.originalname}`;
+    const blobName = gerarNomeBlob(email, arquivo.originalname);
     const blockBlobClient = containerClient.getBlockBlobClient(blobName);
 
     await blockBlobClient.uploadData(arquivo.buffer, {
       blobHTTPHeaders: { blobContentType: arquivo.mimetype },
     });
 
-    return res
-      .status(200)
-      .json({ mensagem: "Arquivo enviado com sucesso!", caminho: blobName });
+    res.status(200).json({ mensagem: "Arquivo enviado com sucesso!", caminho: blobName });
   } catch (erro) {
     console.error("Erro no upload:", erro.message);
-    return res.status(500).json({ erro: "Erro ao enviar arquivo." });
+    res.status(500).json({ erro: "Erro ao enviar arquivo." });
   }
 });
 
-// PUT /upload?email=usuario@email.com&arquivoAntigo=nome-antigo.ext
+// PUT - Substituir arquivo
 router.put("/", upload.single("arquivo"), async (req, res) => {
-  const email = req.query.email;
-  const arquivoAntigo = req.query.arquivoAntigo;
+  const { email, arquivoAntigo } = req.query;
   const novoArquivo = req.file;
 
-  if (!email || !arquivoAntigo || !novoArquivo) {
-    return res
-      .status(400)
-      .json({ erro: "Email, arquivo antigo e novo arquivo são obrigatórios." });
-  }
+  if (!email || !arquivoAntigo || !novoArquivo)
+    return res.status(400).json({ erro: "Email, arquivo antigo e novo arquivo são obrigatórios." });
 
   try {
     const containerClient = blobServiceClient.getContainerClient(containerName);
 
-    // Deletar o arquivo antigo
-    const antigoBlob = containerClient.getBlockBlobClient(
-      `${email}/${arquivoAntigo}`
-    );
-    await antigoBlob.deleteIfExists();
+    await containerClient
+      .getBlockBlobClient(`${email}/${arquivoAntigo}`)
+      .deleteIfExists();
 
-    // Fazer upload do novo arquivo
-    const novoBlobName = `${email}/${Date.now()}-${novoArquivo.originalname}`;
-    const novoBlob = containerClient.getBlockBlobClient(novoBlobName);
-
-    await novoBlob.uploadData(novoArquivo.buffer, {
+    const novoNome = gerarNomeBlob(email, novoArquivo.originalname);
+    await containerClient.getBlockBlobClient(novoNome).uploadData(novoArquivo.buffer, {
       blobHTTPHeaders: { blobContentType: novoArquivo.mimetype },
     });
 
-    return res.status(200).json({
-      mensagem: "Arquivo substituído com sucesso!",
-      caminho: novoBlobName,
-    });
+    res.status(200).json({ mensagem: "Arquivo substituído com sucesso!", caminho: novoNome });
   } catch (erro) {
     console.error("Erro ao substituir arquivo:", erro.message);
-    return res.status(500).json({ erro: "Erro ao substituir arquivo." });
+    res.status(500).json({ erro: "Erro ao substituir arquivo." });
   }
 });
 
-// DELETE /upload?email=usuario@email.com&arquivo=nome.ext
+// DELETE - Deletar arquivo
 router.delete("/", async (req, res) => {
-  const email = req.query.email;
-  const nomeArquivo = req.query.arquivo;
+  const { email, arquivo } = req.query;
 
-  if (!email || !nomeArquivo) {
-    return res
-      .status(400)
-      .json({ erro: "Email e nome do arquivo são obrigatórios." });
-  }
+  if (!email || !arquivo)
+    return res.status(400).json({ erro: "Email e nome do arquivo são obrigatórios." });
 
   try {
     const containerClient = blobServiceClient.getContainerClient(containerName);
-    const blobClient = containerClient.getBlockBlobClient(
-      `${email}/${nomeArquivo}`
-    );
+    await containerClient.getBlockBlobClient(`${email}/${arquivo}`).deleteIfExists();
 
-    await blobClient.deleteIfExists();
-
-    return res.status(200).json({ mensagem: "Arquivo deletado com sucesso!" });
+    res.status(200).json({ mensagem: "Arquivo deletado com sucesso!" });
   } catch (erro) {
     console.error("Erro ao deletar arquivo:", erro.message);
-    return res.status(500).json({ erro: "Erro ao deletar arquivo." });
+    res.status(500).json({ erro: "Erro ao deletar arquivo." });
   }
 });
 
-// GET /upload?email=usuario@email.com
+// GET - Listar arquivos
 router.get("/", async (req, res) => {
-  const email = req.query.email;
+  const { email } = req.query;
 
-  if (!email) {
+  if (!email)
     return res.status(400).json({ erro: "Email é obrigatório." });
-  }
 
   try {
     const containerClient = blobServiceClient.getContainerClient(containerName);
-    const blobs = containerClient.listBlobsFlat({ prefix: `${email}/` });
-
     const arquivos = [];
-    for await (const blob of blobs) {
+
+    for await (const blob of containerClient.listBlobsFlat({ prefix: `${email}/` })) {
       arquivos.push(blob.name.replace(`${email}/`, ""));
     }
 
-    return res.status(200).json({ arquivos });
+    res.status(200).json({ arquivos });
   } catch (erro) {
     console.error("Erro ao listar arquivos:", erro.message);
-    return res.status(500).json({ erro: "Erro ao listar arquivos." });
+    res.status(500).json({ erro: "Erro ao listar arquivos." });
   }
 });
 
-// GET /certificados/:email/:arquivo
+// GET - Download/Preview de arquivo
 router.get("/certificados/:email/:arquivo", async (req, res) => {
   const { email, arquivo } = req.params;
 
   try {
     const containerClient = blobServiceClient.getContainerClient(containerName);
-    const blobName = `${email}/${arquivo}`;
-    const blobClient = containerClient.getBlobClient(blobName);
+    const blobClient = containerClient.getBlobClient(`${email}/${arquivo}`);
 
-    if (!(await blobClient.exists())) {
+    if (!(await blobClient.exists()))
       return res.status(404).send("Arquivo não encontrado.");
-    }
 
     const downloadResponse = await blobClient.download();
     res.set("Content-Type", downloadResponse.contentType || "application/octet-stream");
+
     downloadResponse.readableStreamBody.pipe(res);
   } catch (erro) {
     console.error("Erro ao buscar arquivo:", erro.message);
     res.status(500).send("Erro ao buscar o arquivo.");
   }
 });
-
 
 export default router;

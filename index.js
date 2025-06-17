@@ -4,37 +4,34 @@ import dotenv from "dotenv";
 import perfilRouter from "./routes/perfil.js";
 import uploadRouter from "./routes/upload.js";
 
-
 dotenv.config();
 
 const app = express();
+const PORT = process.env.PORT || 4000;
+
+// Middlewares globais
 app.use(cors());
 app.use(express.json());
+
+// Rotas da aplicação
+app.use("/perfil", perfilRouter);
 app.use("/upload", uploadRouter);
 
-// Rotas principais
-app.use("/perfil", perfilRouter);
-
-// Rota raiz: responde com mensagem simples
+// Rota raiz
 app.get("/", (req, res) => {
   res.send("Backend está rodando! 🚀");
 });
 
-// Rota de verificação de saúde
+// Rota de verificação (health check)
 app.get("/health", async (req, res) => {
   try {
-    // Aqui você pode testar a conexão com o banco, exemplo:
-    // const count = await cosmosContainer.items.readAll().fetchAll();
-    // res.status(200).send(`Conexão OK com CosmosDB 🎉 Total: ${count.resources.length} itens`);
-    
     res.status(200).send("Conexão OK com CosmosDB 🎉");
-  } catch (e) {
+  } catch (error) {
     res.status(500).send("Erro ao conectar com o banco ❌");
   }
 });
 
-// Iniciar servidor
-const PORT = process.env.PORT || 4000;
+// Inicialização do servidor
 app.listen(PORT, () => {
-  console.log(`Backend rodando na porta ${PORT}`);
+  console.log(`✅ Servidor rodando na porta ${PORT}`);
 });
