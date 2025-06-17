@@ -136,4 +136,27 @@ router.get("/", async (req, res) => {
   }
 });
 
+// GET /certificados/:email/:arquivo
+router.get("/certificados/:email/:arquivo", async (req, res) => {
+  const { email, arquivo } = req.params;
+
+  try {
+    const containerClient = blobServiceClient.getContainerClient(containerName);
+    const blobName = `${email}/${arquivo}`;
+    const blobClient = containerClient.getBlobClient(blobName);
+
+    if (!(await blobClient.exists())) {
+      return res.status(404).send("Arquivo não encontrado.");
+    }
+
+    const downloadResponse = await blobClient.download();
+    res.set("Content-Type", downloadResponse.contentType || "application/octet-stream");
+    downloadResponse.readableStreamBody.pipe(res);
+  } catch (erro) {
+    console.error("Erro ao buscar arquivo:", erro.message);
+    res.status(500).send("Erro ao buscar o arquivo.");
+  }
+});
+
+
 export default router;
