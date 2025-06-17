@@ -16,3 +16,20 @@ const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => {
   console.log(`Backend rodando na porta ${PORT}`);
 });
+
+app.get("/", (req, res) => {
+  res.send("Backend está rodando! 🚀");
+});
+
+app.get("/", (req, res) => {
+  res.redirect("/api/perfil");
+});
+
+app.get("/health", async (req, res) => {
+  try {
+    // consulta no Cosmos (simples, tipo um count ou findOne)
+    res.status(200).send("Conexão OK com CosmosDB 🎉");
+  } catch (e) {
+    res.status(500).send("Erro ao conectar com o banco ❌");
+  }
+});
