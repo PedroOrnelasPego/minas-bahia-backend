@@ -7,7 +7,7 @@ import {
 
 const router = express.Router();
 
-// Buscar perfil por ID (email)
+// Buscar perfil por ID (email) 
 router.get("/:email", async (req, res) => {
   try {
     const email = req.params.email;
