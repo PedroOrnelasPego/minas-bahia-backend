@@ -8,7 +8,6 @@ dotenv.config();
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
 
-// Azure Blob Storage
 const containerName = "certificados";
 const blobServiceClient = BlobServiceClient.fromConnectionString(
   process.env.AZURE_STORAGE_CONNECTION_STRING
@@ -18,7 +17,7 @@ const blobServiceClient = BlobServiceClient.fromConnectionString(
 const gerarNomeBlob = (email, originalName) =>
   `${email}/${Date.now()}-${originalName}`;
 
-// POST - Enviar novo arquivo
+// POST - Upload de novo arquivo
 router.post("/", upload.single("arquivo"), async (req, res) => {
   const { email } = req.query;
   const arquivo = req.file;
@@ -37,7 +36,13 @@ router.post("/", upload.single("arquivo"), async (req, res) => {
       blobHTTPHeaders: { blobContentType: arquivo.mimetype },
     });
 
-    res.status(200).json({ mensagem: "Arquivo enviado com sucesso!", caminho: blobName });
+    const url = `${process.env.AZURE_BLOB_URL}/${blobName}`;
+
+    res.status(200).json({
+      mensagem: "Arquivo enviado com sucesso!",
+      caminho: blobName,
+      url,
+    });
   } catch (erro) {
     console.error("Erro no upload:", erro.message);
     res.status(500).json({ erro: "Erro ao enviar arquivo." });
@@ -64,7 +69,13 @@ router.put("/", upload.single("arquivo"), async (req, res) => {
       blobHTTPHeaders: { blobContentType: novoArquivo.mimetype },
     });
 
-    res.status(200).json({ mensagem: "Arquivo substituído com sucesso!", caminho: novoNome });
+    const url = `${process.env.AZURE_BLOB_URL}/${novoNome}`;
+
+    res.status(200).json({
+      mensagem: "Arquivo substituído com sucesso!",
+      caminho: novoNome,
+      url,
+    });
   } catch (erro) {
     console.error("Erro ao substituir arquivo:", erro.message);
     res.status(500).json({ erro: "Erro ao substituir arquivo." });
@@ -89,7 +100,7 @@ router.delete("/", async (req, res) => {
   }
 });
 
-// GET - Listar arquivos
+// GET - Listar arquivos (com URL)
 router.get("/", async (req, res) => {
   const { email } = req.query;
 
@@ -101,7 +112,9 @@ router.get("/", async (req, res) => {
     const arquivos = [];
 
     for await (const blob of containerClient.listBlobsFlat({ prefix: `${email}/` })) {
-      arquivos.push(blob.name.replace(`${email}/`, ""));
+      const nome = blob.name.replace(`${email}/`, "");
+      const url = `${process.env.AZURE_BLOB_URL}/${blob.name}`;
+      arquivos.push({ nome, url });
     }
 
     res.status(200).json({ arquivos });
@@ -111,7 +124,7 @@ router.get("/", async (req, res) => {
   }
 });
 
-// GET - Download/Preview de arquivo
+// GET - Visualizar/baixar arquivo diretamente
 router.get("/certificados/:email/:arquivo", async (req, res) => {
   const { email, arquivo } = req.params;
 
