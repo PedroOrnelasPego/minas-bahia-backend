@@ -7,9 +7,11 @@ import {
 
 const router = express.Router();
 
-router.get("/:id", async (req, res) => {
+// Buscar perfil por ID (email)
+router.get("/:email", async (req, res) => {
   try {
-    const perfil = await buscarPerfil(req.params.id);
+    const email = req.params.email;
+    const perfil = await buscarPerfil(email);
 
     if (!perfil) {
       return res.status(404).json({ erro: "Perfil não encontrado" });
@@ -24,9 +26,15 @@ router.get("/:id", async (req, res) => {
   }
 });
 
+// Criar perfil
 router.post("/", async (req, res) => {
   try {
     const perfil = req.body;
+
+    if (!perfil.email) {
+      return res.status(400).json({ erro: "Email é obrigatório" });
+    }
+
     const resultado = await criarPerfil(perfil);
     res.status(201).json(resultado);
   } catch (error) {
@@ -35,6 +43,7 @@ router.post("/", async (req, res) => {
   }
 });
 
+// Atualizar perfil
 router.put("/:id", async (req, res) => {
   const { id } = req.params;
   const dadosAtualizados = req.body;
