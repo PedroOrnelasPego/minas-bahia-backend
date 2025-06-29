@@ -12,6 +12,13 @@ const client = new CosmosClient({ endpoint: uri, key });
 const database = client.database(databaseId);
 const container = database.container(containerId);
 
+export async function listarPerfis() {
+  const query = "SELECT * FROM c";
+  const { resources } = await container.items.query(query).fetchAll();
+  return resources;
+}
+
+
 // Buscar perfil por e-mail
 export async function buscarPerfil(email) {
   const query = {

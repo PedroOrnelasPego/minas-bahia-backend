@@ -3,11 +3,24 @@ import {
   buscarPerfil,
   criarPerfil,
   atualizarPerfil,
+  listarPerfis,
 } from "../services/cosmos.js";
 
 const router = express.Router();
 
-// Buscar perfil por ID (email) 
+// Garantir que GET /perfil sem barra funcione
+router.get("/", async (req, res) => {
+  try {
+    const perfis = await listarPerfis();
+    res.status(200).json(perfis);
+  } catch (error) {
+    console.error("Erro ao listar perfis:", error.message);
+    res.status(500).json({ erro: "Erro ao listar perfis." });
+  }
+});
+
+
+// Buscar perfil por ID (email)
 router.get("/:email", async (req, res) => {
   try {
     const email = req.params.email;
