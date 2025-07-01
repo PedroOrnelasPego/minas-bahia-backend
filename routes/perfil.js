@@ -4,6 +4,7 @@ import {
   criarPerfil,
   atualizarPerfil,
   listarPerfis,
+  container
 } from "../services/cosmos.js";
 
 const router = express.Router();
@@ -80,7 +81,7 @@ router.put("/perfil/:email", async (req, res) => {
   try {
     const { resource: perfil } = await container.item(email, email).read();
     const updatedPerfil = { ...perfil, ...updates };
-    await Container.item(email, email).replace(updatedPerfil);
+    await container.item(email, email).replace(updatedPerfil);
     res.status(200).json({ mensagem: "Perfil atualizado com sucesso." });
   } catch (error) {
     res.status(500).json({ erro: "Erro ao atualizar o perfil." });
