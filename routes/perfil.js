@@ -4,7 +4,6 @@ import {
   criarPerfil,
   atualizarPerfil,
   listarPerfis,
-  container,
 } from "../services/cosmos.js";
 
 const router = express.Router();
@@ -19,6 +18,7 @@ router.get("/", async (req, res) => {
     res.status(500).json({ erro: "Erro ao listar perfis." });
   }
 });
+
 
 // Buscar perfil por ID (email)
 router.get("/:email", async (req, res) => {
@@ -71,7 +71,7 @@ router.put("/:id", async (req, res) => {
       detalhe: error.message,
     });
   }
-});
+})
 
 router.put("/perfil/:email", async (req, res) => {
   const { email } = req.params;
@@ -80,11 +80,12 @@ router.put("/perfil/:email", async (req, res) => {
   try {
     const { resource: perfil } = await container.item(email, email).read();
     const updatedPerfil = { ...perfil, ...updates };
-    await container.item(email, email).replace(updatedPerfil);
+    await Container.item(email, email).replace(updatedPerfil);
     res.status(200).json({ mensagem: "Perfil atualizado com sucesso." });
   } catch (error) {
     res.status(500).json({ erro: "Erro ao atualizar o perfil." });
   }
 });
+
 
 export default router;
