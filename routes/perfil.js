@@ -71,6 +71,21 @@ router.put("/:id", async (req, res) => {
       detalhe: error.message,
     });
   }
+})
+
+router.put("/perfil/:email", async (req, res) => {
+  const { email } = req.params;
+  const updates = req.body;
+
+  try {
+    const { resource: perfil } = await container.item(email, email).read();
+    const updatedPerfil = { ...perfil, ...updates };
+    await container.item(email, email).replace(updatedPerfil);
+    res.status(200).json({ mensagem: "Perfil atualizado com sucesso." });
+  } catch (error) {
+    res.status(500).json({ erro: "Erro ao atualizar o perfil." });
+  }
 });
+
 
 export default router;
