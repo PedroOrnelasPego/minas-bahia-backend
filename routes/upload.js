@@ -4,7 +4,6 @@ import { BlobServiceClient } from "@azure/storage-blob";
 import dotenv from "dotenv";
 
 dotenv.config();
-
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
 
@@ -12,6 +11,67 @@ const containerName = "certificados";
 const blobServiceClient = BlobServiceClient.fromConnectionString(
   process.env.AZURE_STORAGE_CONNECTION_STRING
 );
+// **Aqui** você precisa instanciar o containerClient **UMA SÓ VEZ**:
+const containerClient = blobServiceClient.getContainerClient(containerName);
+
+// Pastas permitidas
+const PASTAS = ["aluno", "graduado", "instrutor", "professor"];
+
+// --- UPLOAD de arquivo público em pasta fixa ---
+router.post("/public", upload.single("arquivo"), async (req, res) => {
+  const { pasta } = req.query;
+  if (!PASTAS.includes(pasta)) {
+    return res.status(400).json({ erro: "Pasta inválida." });
+  }
+  const blobName = `${pasta}/${Date.now()}-${req.file.originalname}`;
+  const blockBlobClient = containerClient.getBlockBlobClient(blobName);
+  try {
+    await blockBlobClient.uploadData(req.file.buffer, {
+      blobHTTPHeaders: { blobContentType: req.file.mimetype },
+    });
+    res.status(201).json({ mensagem: "Arquivo enviado." });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ erro: "Erro ao enviar arquivo." });
+  }
+});
+
+// --- LISTAR arquivos de uma pasta pública ---
+router.get("/public", async (req, res) => {
+  const { pasta } = req.query;
+  if (!PASTAS.includes(pasta)) {
+    return res.status(400).json({ erro: "Pasta inválida." });
+  }
+  try {
+    const arquivos = [];
+    for await (const blob of containerClient.listBlobsFlat({ prefix: `${pasta}/` })) {
+      const url = containerClient.getBlockBlobClient(blob.name).url;
+      const nomeLimpo = blob.name.replace(`${pasta}/`, "");
+      arquivos.push({ nome: nomeLimpo, url });
+    }
+    res.json({ arquivos });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ erro: "Erro ao listar arquivos." });
+  }
+});
+
+// --- DELETE de um arquivo público ---
+router.delete("/public", async (req, res) => {
+  const { pasta, arquivo } = req.query;
+  if (!PASTAS.includes(pasta) || !arquivo) {
+    return res.status(400).json({ erro: "Parâmetros inválidos." });
+  }
+  const blobName = `${pasta}/${arquivo}`;
+  const blockBlobClient = containerClient.getBlockBlobClient(blobName);
+  try {
+    await blockBlobClient.delete();
+    res.json({ mensagem: "Arquivo removido." });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ erro: "Erro ao remover arquivo." });
+  }
+});
 
 // FOTO PERFIL - Upload
 router.post("/foto-perfil", upload.single("arquivo"), async (req, res) => {
