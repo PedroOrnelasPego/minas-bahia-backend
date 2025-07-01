@@ -8,7 +8,6 @@ import {
 } from "../services/cosmos.js";
 
 const router = express.Router();
-const MESTRE_EMAIL = "contato@capoeiraminasbahia.com.br";
 
 // GET /perfil
 router.get("/", async (req, res) => {
@@ -52,14 +51,6 @@ router.put("/:email", async (req, res) => {
   const { email } = req.params;
   const updates = req.body;
 
-  // bloqueia alteração do mestre
-  if (
-    email === MESTRE_EMAIL &&
-    Object.prototype.hasOwnProperty.call(updates, "nivelAcesso")
-  ) {
-    return res.status(403).json({ erro: "Não é permitido alterar o mestre." });
-  }
-
   try {
     // lê, mescla e substitui
     const { resource: perfil } = await container.item(email, email).read();
@@ -76,14 +67,6 @@ router.put("/:email", async (req, res) => {
 router.put("/:email", async (req, res) => {
   const { email } = req.params;
   const updates = req.body;
-
-  // não deixar mexer no mestre
-  if (
-    email === MESTRE_EMAIL &&
-    Object.prototype.hasOwnProperty.call(updates, "nivelAcesso")
-  ) {
-    return res.status(403).json({ erro: "Não é permitido alterar o mestre." });
-  }
 
   try {
     // lê o documento pelo partitionKey = email
