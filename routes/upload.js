@@ -18,7 +18,7 @@ const BASE_FOLDER = "documentos";
 const containerClient = blobServiceClient.getContainerClient(containerName);
 
 // Pastas permitidas
-const PASTAS = ["aluno", "graduado", "instrutor", "professor"];
+const PASTAS = ["aluno", "graduado", "monitor", "instrutor", "professor", "contramestre"];
 
 // --- UPLOAD de arquivo público em pasta fixa ---
 router.post("/public", upload.single("arquivo"), async (req, res) => {
