@@ -148,6 +148,7 @@ router.post(
       const block = container.getBlockBlobClient(blobName);
       await block.uploadData(file.buffer, {
         blobHTTPHeaders: { blobContentType: file.mimetype },
+        cacheControl: "no-cache, max-age=0",
       });
 
       res.json({ url: block.url });
@@ -237,6 +238,47 @@ router.post("/:group/albums", async (req, res) => {
   }
 });
 
+// routes/eventos.js
+router.post(
+  "/:group/:album/photos",
+  upload.array("fotos"),
+  async (req, res) => {
+    try {
+      const { group, album } = req.params;
+      if (!req.files?.length) {
+        return res.status(400).json({ erro: "Nenhuma foto enviada." });
+      }
+
+      const added = [];
+      for (const f of req.files) {
+        const blobName = `${albumPrefix(group, album)}${Date.now()}-${
+          f.originalname
+        }`;
+        const block = container.getBlockBlobClient(blobName);
+
+        await block.uploadData(f.buffer, {
+          blobHTTPHeaders: {
+            blobContentType: f.mimetype,
+            cacheControl: "no-cache, max-age=0", // evitar cache teimoso ao ver logo depois
+          },
+        });
+
+        // monta URL pública com encode para nomes com espaço/acentos
+        const url = `${process.env.AZURE_BLOB_EVENTS_URL}/${encodeURI(
+          blobName
+        )}`;
+        added.push({ name: blobName.split("/").pop(), url });
+        // added.push({ name: blobName.split("/").pop(), url: block.url });
+      }
+
+      res.status(201).json({ added });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ erro: "Erro ao enviar fotos" });
+    }
+  }
+);
+
 // DELETE /eventos/:group/albums/:album
 router.delete("/:group/albums/:album", async (req, res) => {
   try {
@@ -267,6 +309,7 @@ router.post(
       const block = container.getBlockBlobClient(blobName);
       await block.uploadData(file.buffer, {
         blobHTTPHeaders: { blobContentType: file.mimetype },
+        cacheControl: "no-cache, max-age=0",
       });
 
       res.json({ url: block.url });
