@@ -2,162 +2,201 @@
 import express from "express";
 import multer from "multer";
 import { BlobServiceClient } from "@azure/storage-blob";
-import sharp from "sharp";
-import path from "node:path";
 import dotenv from "dotenv";
-import { buscarPerfil } from "../services/cosmos.js";
 
 dotenv.config();
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
 
-const blobServiceClient = BlobServiceClient.fromConnectionString(
+/** CONFIG DO CONTAINER / CAMINHO BASE */
+const blob = BlobServiceClient.fromConnectionString(
   process.env.AZURE_STORAGE_CONNECTION_STRING
 );
+// use um container separado para eventos (recomendado)
+const CONTAINER = "eventos";
+const container = blob.getContainerClient(CONTAINER);
 
-// container onde ficarão as fotos
-const EVENTS_CONTAINER = "eventos";
-const containerClient = blobServiceClient.getContainerClient(EVENTS_CONTAINER);
+// cria se não existir
+await container.createIfNotExists();
 
-// util
-const NIVEIS = ["visitante","aluno","graduado","monitor","instrutor","professor","contramestre"];
-const rankNivel = (n) => {
-  const i = NIVEIS.indexOf((n || "").toLowerCase());
-  return i < 0 ? -1 : i;
-};
-const AZ_BLOB_URL = process.env.AZURE_BLOB_EVENTS_URL; // https://.../eventos
+/** helpers */
+const groupPrefix = (group) => `grupos/${group}/`;
+const albumPrefix = (group, album) => `grupos/${group}/albuns/${album}/`;
+const publicUrl = (name) =>
+  `${process.env.AZURE_BLOB_EVENTS_URL}/${name}`;
 
-// middleware simples: precisa de e-mail e permissão de editor (nível ≥ graduado)
-async function requireEditor(req, res, next) {
+/** ================== GRUPOS ================== */
+// GET /eventos/groups
+router.get("/groups", async (_req, res) => {
   try {
-    const email = req.header("x-user-email");
-    if (!email) return res.status(401).json({ erro: "Não autenticado." });
-
-    const perfil = await buscarPerfil(email);
-    if (!perfil) return res.status(403).json({ erro: "Perfil não encontrado." });
-
-    const nivelOk = rankNivel(perfil.nivelAcesso) >= rankNivel("graduado");
-    const permOk = (perfil.permissaoEventos || "leitor") === "editor";
-
-    if (!nivelOk || !permOk) {
-      return res.status(403).json({ erro: "Sem permissão para editar eventos." });
+    const groups = new Map(); // slug -> { slug, title }
+    const prefix = "grupos/";
+    for await (const b of container.listBlobsFlat({ prefix })) {
+      // esperamos pastas: grupos/<slug>/marker.txt
+      const parts = b.name.split("/");
+      if (parts.length >= 2 && parts[0] === "grupos") {
+        const slug = parts[1];
+        if (!groups.has(slug)) groups.set(slug, { slug, title: slug });
+      }
     }
-
-    req.user = { email, perfil };
-    next();
+    res.json({ groups: [...groups.values()] });
   } catch (e) {
     console.error(e);
-    res.status(500).json({ erro: "Falha na verificação de permissão." });
-  }
-}
-
-// ---------- LISTAR FOTOS ----------
-router.get("/fotos", async (req, res) => {
-  const { group, album } = req.query;
-  if (!group || !album) {
-    return res.status(400).json({ erro: "Parâmetros 'group' e 'album' são obrigatórios." });
-  }
-
-  const prefix = `eventos/${group}/${album}/`;
-
-  try {
-    const fotos = [];
-    for await (const blob of containerClient.listBlobsFlat({ prefix })) {
-      // pula thumbs neste endpoint (retornamos ambas por conveniência abaixo)
-      if (blob.name.endsWith(".thumb.jpg")) continue;
-
-      const name = path.basename(blob.name);                 // id.jpg
-      const url = `${AZ_BLOB_URL}/${blob.name}`;             // original
-      const thumbUrl = `${AZ_BLOB_URL}/${blob.name}.thumb.jpg`; // thumb com sufixo
-
-      fotos.push({ name, url, thumbUrl });
-    }
-    res.json({ fotos });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ erro: "Erro ao listar fotos." });
+    res.status(500).json({ erro: "Erro ao listar grupos" });
   }
 });
 
-// ---------- UPLOAD (até 5 por vez) ----------
-router.post(
-  "/fotos",
-  requireEditor,
-  upload.array("fotos", 5),
-  async (req, res) => {
-    const { group, album } = req.body; // pode vir por query também
-    if (!group || !album) {
-      return res.status(400).json({ erro: "Parâmetros 'group' e 'album' são obrigatórios." });
+// POST /eventos/groups  body: {slug,title}
+router.post("/groups", async (req, res) => {
+  try {
+    const { slug, title } = req.body || {};
+    if (!slug || !title) {
+      return res.status(400).json({ erro: "slug e title são obrigatórios" });
     }
-    if (!req.files?.length) return res.status(400).json({ erro: "Anexe pelo menos 1 foto." });
+    // cria um "marcador" para forçar a pasta do grupo a existir
+    const marker = container.getBlockBlobClient(`${groupPrefix(slug)}_group.txt`);
+    await marker.uploadData(Buffer.from(title), {
+      blobHTTPHeaders: { blobContentType: "text/plain" },
+    });
+    res.status(201).json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ erro: "Erro ao criar grupo" });
+  }
+});
 
-    try {
-      // garante que o container existe
-      await containerClient.createIfNotExists();
+// DELETE /eventos/groups/:groupSlug
+router.delete("/groups/:group", async (req, res) => {
+  try {
+    const { group } = req.params;
+    const prefix = groupPrefix(group);
+    for await (const b of container.listBlobsFlat({ prefix })) {
+      await container.getBlockBlobClient(b.name).deleteIfExists();
+    }
+    res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ erro: "Erro ao excluir grupo" });
+  }
+});
 
-      const results = [];
+/** ================== ÁLBUNS ================== */
+// GET /eventos/:group/albums
+router.get("/:group/albums", async (req, res) => {
+  try {
+    const { group } = req.params;
+    const albums = new Map();
+    const prefix = `${groupPrefix(group)}albuns/`;
+    for await (const b of container.listBlobsFlat({ prefix })) {
+      // esperamos pastas: grupos/<g>/albuns/<album>/...
+      const parts = b.name.split("/");
+      if (parts.length >= 4) {
+        const slug = parts[3];
+        if (!albums.has(slug)) albums.set(slug, { slug, title: slug });
+      }
+    }
+    res.json({ albums: [...albums.values()] });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ erro: "Erro ao listar álbuns" });
+  }
+});
 
-      for (const file of req.files) {
-        // id seguro e curto
-        const id =
-          Date.now() + "-" + Math.random().toString(36).slice(2, 8);
+// POST /eventos/:group/albums  body: {slug,title}
+router.post("/:group/albums", async (req, res) => {
+  try {
+    const { group } = req.params;
+    const { slug, title } = req.body || {};
+    if (!slug || !title) {
+      return res.status(400).json({ erro: "slug e title são obrigatórios" });
+    }
+    const marker = container.getBlockBlobClient(
+      `${albumPrefix(group, slug)}_album.txt`
+    );
+    await marker.uploadData(Buffer.from(title), {
+      blobHTTPHeaders: { blobContentType: "text/plain" },
+    });
+    res.status(201).json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ erro: "Erro ao criar álbum" });
+  }
+});
 
-        // sempre geramos JPEG otimizado pra baratear tráfego
-        const fullBuf = await sharp(file.buffer)
-          .rotate()
-          .resize({ width: 1600, height: 1600, fit: "inside", withoutEnlargement: true })
-          .jpeg({ quality: 85 })
-          .toBuffer();
+// DELETE /eventos/:group/albums/:album
+router.delete("/:group/albums/:album", async (req, res) => {
+  try {
+    const { group, album } = req.params;
+    const prefix = albumPrefix(group, album);
+    for await (const b of container.listBlobsFlat({ prefix })) {
+      await container.getBlockBlobClient(b.name).deleteIfExists();
+    }
+    res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ erro: "Erro ao excluir álbum" });
+  }
+});
 
-        const thumbBuf = await sharp(file.buffer)
-          .rotate()
-          .resize({ width: 360, height: 360, fit: "inside", withoutEnlargement: true })
-          .jpeg({ quality: 70 })
-          .toBuffer();
-
-        const basePath = `eventos/${group}/${album}/${id}.jpg`;
-        const fullBlob = containerClient.getBlockBlobClient(basePath);
-        const thumbBlob = containerClient.getBlockBlobClient(`${basePath}.thumb.jpg`);
-
-        await fullBlob.uploadData(fullBuf, {
-          blobHTTPHeaders: { blobContentType: "image/jpeg" },
-        });
-        await thumbBlob.uploadData(thumbBuf, {
-          blobHTTPHeaders: { blobContentType: "image/jpeg" },
-        });
-
-        results.push({
-          name: `${id}.jpg`,
-          url: `${AZ_BLOB_URL}/${basePath}`,
-          thumbUrl: `${AZ_BLOB_URL}/${basePath}.thumb.jpg`,
+/** ================== FOTOS ================== */
+// GET /eventos/:group/:album/photos
+router.get("/:group/:album/photos", async (req, res) => {
+  try {
+    const { group, album } = req.params;
+    const prefix = albumPrefix(group, album);
+    const photos = [];
+    for await (const b of container.listBlobsFlat({ prefix })) {
+      if (b.name.endsWith(".jpg") || b.name.endsWith(".jpeg") || b.name.endsWith(".png")) {
+        photos.push({
+          name: b.name.replace(prefix, ""),
+          url: publicUrl(b.name),
+          size: b.properties?.contentLength,
+          contentType: b.properties?.contentType,
         });
       }
-
-      res.status(201).json({ uploaded: results });
-    } catch (err) {
-      console.error(err);
-      res.status(500).json({ erro: "Erro ao enviar fotos." });
     }
+    res.json({ photos });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ erro: "Erro ao listar fotos" });
   }
-);
+});
 
-// ---------- DELETE ----------
-router.delete("/fotos", requireEditor, async (req, res) => {
-  const { group, album, name } = req.query;
-  if (!group || !album || !name) {
-    return res.status(400).json({ erro: "Parâmetros 'group', 'album' e 'name' são obrigatórios." });
-  }
-
-  const basePath = `eventos/${group}/${album}/${name}`;
-
+// POST /eventos/:group/:album/photos   form-data: fotos[]
+router.post("/:group/:album/photos", upload.array("fotos"), async (req, res) => {
   try {
-    await containerClient.getBlockBlobClient(basePath).deleteIfExists();
-    await containerClient.getBlockBlobClient(`${basePath}.thumb.jpg`).deleteIfExists();
-    res.json({ mensagem: "Foto removida." });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ erro: "Erro ao remover foto." });
+    const { group, album } = req.params;
+    if (!req.files?.length) return res.status(400).json({ erro: "Nenhuma foto enviada." });
+
+    const added = [];
+    for (const f of req.files) {
+      const blobName = `${albumPrefix(group, album)}${Date.now()}-${f.originalname}`;
+      await container.getBlockBlobClient(blobName).uploadData(f.buffer, {
+        blobHTTPHeaders: { blobContentType: f.mimetype },
+      });
+      added.push({ name: blobName.split("/").pop(), url: publicUrl(blobName) });
+    }
+    res.status(201).json({ added });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ erro: "Erro ao enviar fotos" });
+  }
+});
+
+// DELETE /eventos/:group/:album/photos?name=arquivo.jpg
+router.delete("/:group/:album/photos", async (req, res) => {
+  try {
+    const { group, album } = req.params;
+    const { name } = req.query;
+    if (!name) return res.status(400).json({ erro: "name é obrigatório" });
+
+    const blobName = `${albumPrefix(group, album)}${name}`;
+    await container.getBlockBlobClient(blobName).deleteIfExists();
+    res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ erro: "Erro ao deletar foto" });
   }
 });
 
