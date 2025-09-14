@@ -48,33 +48,46 @@ const isImageName = (name = "") =>
 
 // GET /eventos/groups
 // Lista grupos com { slug, title, coverUrl }
+// GET /eventos/groups
 router.get("/groups", async (_req, res) => {
   try {
     const groups = [];
-    const prefix = "grupos/";
+    const basePrefix = "grupos/";
 
-    // usa hierarquia para pegar APENAS pastas de 1º nível
-    for await (const item of container.listBlobsByHierarchy("/", { prefix })) {
-      if (item.kind !== "prefix") continue; // ignorar blobs, queremos "pastas"
-      const slug = item.name.slice(prefix.length, -1); // remove prefixo e a barra final
+    // lista "pastas" de grupos
+    for await (const item of container.listBlobsByHierarchy("/", {
+      prefix: basePrefix,
+    })) {
+      if (item.kind !== "prefix") continue;
 
-      // Título: ler _group.txt se existir
+      const slug = item.name.slice(basePrefix.length, -1); // remove "grupos/" e a barra final
+
+      // título salvo no _group.txt (fallback = slug)
       const titleBlob = container.getBlobClient(
-        `${groupPrefix(slug)}_group.txt`
+        `${basePrefix}${slug}/_group.txt`
       );
       let title = slug;
       if (await titleBlob.exists()) {
         const dl = await titleBlob.download();
-        title = (await streamToString(dl.readableStreamBody)).trim() || slug;
+        title = (await streamToString(dl.readableStreamBody)).trim();
       }
 
-      // Capa do grupo (opcional)
+      // capa se existir
       const coverBlob = container.getBlockBlobClient(
-        `${groupPrefix(slug)}_cover.jpg`
+        `${basePrefix}${slug}/_cover.jpg`
       );
       const coverUrl = (await coverBlob.exists()) ? coverBlob.url : "";
 
-      groups.push({ slug, title, coverUrl });
+      // conta álbuns = quantos "prefixes" existem em grupos/<slug>/albuns/
+      const albumsPrefix = `${basePrefix}${slug}/albuns/`;
+      let albumCount = 0;
+      for await (const alb of container.listBlobsByHierarchy("/", {
+        prefix: albumsPrefix,
+      })) {
+        if (alb.kind === "prefix") albumCount++; // cada subpasta é um álbum
+      }
+
+      groups.push({ slug, title, coverUrl, albumCount });
     }
 
     res.json({ groups });
@@ -83,6 +96,14 @@ router.get("/groups", async (_req, res) => {
     res.status(500).json({ erro: "Erro ao listar grupos" });
   }
 });
+
+// helper para ler streams
+async function streamToString(readable) {
+  if (!readable) return "";
+  const chunks = [];
+  for await (const chunk of readable) chunks.push(Buffer.from(chunk));
+  return Buffer.concat(chunks).toString("utf-8");
+}
 
 // POST /eventos/groups  body: {slug,title}
 router.post("/groups", async (req, res) => {
@@ -154,42 +175,45 @@ router.post(
 
 // GET /eventos/:group/albums
 // Retorna [{ slug, title, coverUrl, totalPhotos }]
+// GET /eventos/:group/albums
 router.get("/:group/albums", async (req, res) => {
   try {
     const { group } = req.params;
     const albums = [];
-    const prefix = albumsRootPrefix(group); // grupos/<g>/albuns/
+    const albumPrefix = `grupos/${group}/albuns/`;
 
-    for await (const item of container.listBlobsByHierarchy("/", { prefix })) {
+    for await (const item of container.listBlobsByHierarchy("/", {
+      prefix: albumPrefix,
+    })) {
       if (item.kind !== "prefix") continue;
-      const albumSlug = item.name.slice(prefix.length, -1);
 
-      // título do álbum (opcional)
-      const albumTitleBlob = container.getBlobClient(
-        `${albumPrefix(group, albumSlug)}_album.txt`
+      const albumSlug = item.name.slice(albumPrefix.length, -1);
+
+      // título salvo no _album.txt (fallback = slug)
+      const titleBlob = container.getBlobClient(
+        `${albumPrefix}${albumSlug}/_album.txt`
       );
       let title = albumSlug;
-      if (await albumTitleBlob.exists()) {
-        const dl = await albumTitleBlob.download();
-        title =
-          (await streamToString(dl.readableStreamBody)).trim() || albumSlug;
+      if (await titleBlob.exists()) {
+        const dl = await titleBlob.download();
+        title = (await streamToString(dl.readableStreamBody)).trim();
       }
 
-      // capa do álbum
+      // capa
       const coverBlob = container.getBlockBlobClient(
-        `${albumPrefix(group, albumSlug)}_cover.jpg`
+        `${albumPrefix}${albumSlug}/_cover.jpg`
       );
       const coverUrl = (await coverBlob.exists()) ? coverBlob.url : "";
 
-      // total de fotos (ignora nomes que começam com "_")
-      let total = 0;
-      const photoPrefix = albumPrefix(group, albumSlug);
+      // conta fotos (ignora arquivos que começam com "_")
+      const photoPrefix = `${albumPrefix}${albumSlug}/`;
+      let count = 0;
       for await (const b of container.listBlobsFlat({ prefix: photoPrefix })) {
         const name = b.name.replace(photoPrefix, "");
-        if (!name.startsWith("_") && isImageName(name)) total++;
+        if (!name.startsWith("_")) count++;
       }
 
-      albums.push({ slug: albumSlug, title, coverUrl, totalPhotos: total });
+      albums.push({ slug: albumSlug, title, coverUrl, count });
     }
 
     res.json({ albums });
@@ -272,19 +296,22 @@ router.post(
 router.get("/:group/:album/photos", async (req, res) => {
   try {
     const { group, album } = req.params;
-    const prefix = albumPrefix(group, album);
+    const prefix = `grupos/${group}/albuns/${album}/`;
+
+    const clean = (n) => decodeURIComponent(n).replace(/^\d{10,}-/, ""); // remove timestamp-
+
     const photos = [];
-
     for await (const b of container.listBlobsFlat({ prefix })) {
-      const short = b.name.replace(prefix, "");
-      if (short.startsWith("_")) continue; // ignora arquivos de meta (capa/títulos)
-      if (!isImageName(short)) continue;
+      const raw = b.name.replace(prefix, "");
+      if (raw.startsWith("_")) continue; // pula arquivos de controle
 
+      const url = `${process.env.AZURE_BLOB_EVENTS_URL}/${b.name}`;
       photos.push({
-        name: short,
-        url: publicUrl(b.name),
-        size: b.properties?.contentLength,
-        contentType: b.properties?.contentType,
+        name: raw, // nome real no blob
+        displayName: clean(raw), // nome “bonitinho”
+        url,
+        size: b.properties?.contentLength || null,
+        contentType: b.properties?.contentType || null,
       });
     }
 
