@@ -283,29 +283,40 @@ router.post(
  */
 
 // GET /eventos/:group/:album/photos
+// routes/eventos.js  (dentro de GET /:group/:album/photos)
 router.get("/:group/:album/photos", async (req, res) => {
   try {
     const { group, album } = req.params;
     const prefix = `grupos/${group}/albuns/${album}/`;
 
-    const clean = (n) => decodeURIComponent(n).replace(/^\d{10,}-/, ""); // remove timestamp-
+    // lê o título salvo
+    let title = album;
+    const titleBlob = container.getBlobClient(`${prefix}_album.txt`);
+    if (await titleBlob.exists()) {
+      const dl = await titleBlob.download();
+      title = (await streamToString(dl.readableStreamBody)).trim();
+    }
+
+    const clean = (n) => decodeURIComponent(n).replace(/^\d{10,}-/, "");
 
     const photos = [];
     for await (const b of container.listBlobsFlat({ prefix })) {
       const raw = b.name.replace(prefix, "");
-      if (raw.startsWith("_")) continue; // pula arquivos de controle
+      if (raw.startsWith("_")) continue;
 
-      const url = `${process.env.AZURE_BLOB_EVENTS_URL}/${b.name}`;
+      // >>> importante: encodeURI no caminho completo
+      const url = `${process.env.AZURE_BLOB_EVENTS_URL}/${encodeURI(b.name)}`;
+
       photos.push({
-        name: raw, // nome real no blob
-        displayName: clean(raw), // nome “bonitinho”
+        name: raw,
+        displayName: clean(raw),
         url,
-        size: b.properties?.contentLength || null,
-        contentType: b.properties?.contentType || null,
+        size: b.properties?.contentLength ?? null,
+        contentType: b.properties?.contentType ?? null,
       });
     }
 
-    res.json({ photos });
+    res.json({ title, photos });
   } catch (e) {
     console.error(e);
     res.status(500).json({ erro: "Erro ao listar fotos" });
@@ -322,6 +333,9 @@ router.post(
       if (!req.files?.length) {
         return res.status(400).json({ erro: "Nenhuma foto enviada." });
       }
+
+      const url = `${process.env.AZURE_BLOB_EVENTS_URL}/${encodeURI(blobName)}`;
+      added.push({ name: blobName.split("/").pop(), url });
 
       const added = [];
       for (const f of req.files) {
