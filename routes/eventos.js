@@ -27,15 +27,7 @@ const albumsRootPrefix = (group) => `grupos/${group}/albuns/`;
 const albumPrefix = (group, album) => `grupos/${group}/albuns/${album}/`;
 const publicUrl = (name) => `${process.env.AZURE_BLOB_EVENTS_URL}/${name}`;
 
-// converter stream em string (para ler _group.txt / _album.txt)
-async function streamToString(readable) {
-  return new Promise((resolve, reject) => {
-    const chunks = [];
-    readable.on("data", (d) => chunks.push(d.toString()));
-    readable.on("end", () => resolve(chunks.join("")));
-    readable.on("error", reject);
-  });
-}
+
 
 // checagem simples de imagem
 const isImageName = (name = "") =>
