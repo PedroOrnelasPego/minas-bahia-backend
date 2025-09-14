@@ -27,8 +27,6 @@ const albumsRootPrefix = (group) => `grupos/${group}/albuns/`;
 const albumPrefix = (group, album) => `grupos/${group}/albuns/${album}/`;
 const publicUrl = (name) => `${process.env.AZURE_BLOB_EVENTS_URL}/${name}`;
 
-
-
 // checagem simples de imagem
 const isImageName = (name = "") =>
   /\.(png|jpg|jpeg|gif|webp|avif)$/i.test(name);
@@ -359,6 +357,52 @@ router.delete("/:group/:album/photos", async (req, res) => {
   } catch (e) {
     console.error(e);
     res.status(500).json({ erro: "Erro ao deletar foto" });
+  }
+});
+
+// PUT /eventos/groups/:groupSlug/title  body: { title }
+router.put("/groups/:groupSlug/title", async (req, res) => {
+  try {
+    const { groupSlug } = req.params;
+    const { title } = req.body || {};
+    if (!title?.trim())
+      return res.status(400).json({ erro: "title é obrigatório" });
+
+    const blob = container.getBlockBlobClient(
+      `${groupPrefix(groupSlug)}_group.txt`
+    );
+    await blob.uploadData(Buffer.from(title.trim(), "utf8"), {
+      overwrite: true,
+      blobHTTPHeaders: { blobContentType: "text/plain" },
+    });
+
+    res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ erro: "Erro ao atualizar título do grupo" });
+  }
+});
+
+// PUT /eventos/:group/albums/:album/title   body: { title }
+router.put("/:group/albums/:album/title", async (req, res) => {
+  try {
+    const { group, album } = req.params;
+    const { title } = req.body || {};
+    if (!title?.trim())
+      return res.status(400).json({ erro: "title é obrigatório" });
+
+    const blob = container.getBlockBlobClient(
+      `${albumPrefix(group, album)}_album.txt`
+    );
+    await blob.uploadData(Buffer.from(title.trim(), "utf8"), {
+      overwrite: true,
+      blobHTTPHeaders: { blobContentType: "text/plain" },
+    });
+
+    res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ erro: "Erro ao atualizar título do álbum" });
   }
 });
 
