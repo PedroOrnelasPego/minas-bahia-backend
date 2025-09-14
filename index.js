@@ -5,6 +5,10 @@ import perfilRouter from "./routes/perfil.js";
 import uploadRouter from "./routes/upload.js";
 import eventosRoutes from "./routes/eventos.js";
 
+// 👇 importa o package.json e pega a versão
+import pkg from "./package.json" with { type: "json" };
+const VERSION = pkg.version;
+
 dotenv.config();
 
 const app = express();
@@ -21,20 +25,19 @@ app.use("/eventos", eventosRoutes);
 
 // Rota raiz
 app.get("/", (req, res) => {
-  res.send("Backend está rodando! 🚀");
+  res.send(`Backend está rodando! 🚀 v${VERSION}`);
 });
 
 // Rota de verificação (health check)
 app.get("/health", async (req, res) => {
   try {
-    res.status(200).send("Conexão OK com CosmosDB 🎉");
+    res.status(200).send(`Conexão OK com CosmosDB 🎉 v${VERSION}`);
   } catch (error) {
-    res.status(500).send("Erro ao conectar com o banco ❌");
+    res.status(500).send(`Erro ao conectar com o banco ❌ v${VERSION}`);
   }
 });
 
 // Inicialização do servidor
 app.listen(PORT, () => {
-  console.log(`✅ Servidor rodando na porta ${PORT}`);
+  console.log(`✅ Servidor v${VERSION} rodando na porta ${PORT}`);
 });
-
