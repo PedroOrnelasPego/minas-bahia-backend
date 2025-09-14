@@ -3,6 +3,7 @@ import cors from "cors";
 import dotenv from "dotenv";
 import perfilRouter from "./routes/perfil.js";
 import uploadRouter from "./routes/upload.js";
+import eventosRoutes from "./routes/eventos.js";
 
 dotenv.config();
 
@@ -16,6 +17,7 @@ app.use(express.json());
 // Rotas da aplicação
 app.use("/perfil", perfilRouter);
 app.use("/upload", uploadRouter);
+app.use("/eventos", eventosRoutes);
 
 // Rota raiz
 app.get("/", (req, res) => {
@@ -35,3 +37,4 @@ app.get("/health", async (req, res) => {
 app.listen(PORT, () => {
   console.log(`✅ Servidor rodando na porta ${PORT}`);
 });
+
