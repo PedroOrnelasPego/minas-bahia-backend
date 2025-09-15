@@ -233,6 +233,24 @@ router.delete("/:group/:album/photos/:name", async (req, res) => {
   }
 });
 
+// DELETE /eventos/:group/albums/:album
+router.delete("/:group/albums/:album", async (req, res) => {
+  try {
+    const { group, album } = req.params;
+    const prefix = albumPrefix(group, album); // ex.: grupos/<group>/albuns/<album>/
+
+    // remove todos os blobs dentro do "diretório" do álbum
+    for await (const b of container.listBlobsFlat({ prefix })) {
+      await container.getBlockBlobClient(b.name).deleteIfExists();
+    }
+
+    res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ erro: "Erro ao excluir álbum" });
+  }
+});
+
 // POST /eventos/:groupSlug/albums/:albumSlug/cover
 router.post(
   "/:groupSlug/albums/:albumSlug/cover",
