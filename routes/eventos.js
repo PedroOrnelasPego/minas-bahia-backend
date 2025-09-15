@@ -189,7 +189,22 @@ router.get("/:group/albums", async (req, res) => {
       albums.push({ slug, title, coverUrl, count });
     }
 
-    albums.reverse((a, b) => b.title.localeCompare(a.title));
+    const numFrom = (s) => {
+      const m = (s || "").match(/\d+/); // pega o primeiro número que aparecer
+      return m ? parseInt(m[0], 10) : null;
+    };
+
+    albums.sort((a, b) => {
+      const an = numFrom(a.title) ?? numFrom(a.slug) ?? -Infinity;
+      const bn = numFrom(b.title) ?? numFrom(b.slug) ?? -Infinity;
+
+      if (an !== bn) return bn - an; // decrescente pelo número (15, 13, 11, 10, 9, 8...)
+      // empate: ordena por título de forma “natural” (ainda decrescente)
+      return b.title.localeCompare(a.title, "pt-BR", {
+        numeric: true,
+        sensitivity: "base",
+      });
+    });
 
     res.json({ albums });
   } catch (e) {
