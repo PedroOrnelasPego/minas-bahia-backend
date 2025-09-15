@@ -189,6 +189,8 @@ router.get("/:group/albums", async (req, res) => {
       albums.push({ slug, title, coverUrl, count });
     }
 
+    albums.reverse((a, b) => b.title.localeCompare(a.title));
+
     res.json({ albums });
   } catch (e) {
     console.error(e);
