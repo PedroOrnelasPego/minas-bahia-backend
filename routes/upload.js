@@ -18,7 +18,14 @@ const BASE_FOLDER = "documentos";
 const containerClient = blobServiceClient.getContainerClient(containerName);
 
 // Pastas permitidas
-const PASTAS = ["aluno", "graduado", "monitor", "instrutor", "professor", "contramestre"];
+const PASTAS = [
+  "aluno",
+  "graduado",
+  "monitor",
+  "instrutor",
+  "professor",
+  "contramestre",
+];
 
 // --- UPLOAD de arquivo público em pasta fixa ---
 router.post("/public", upload.single("arquivo"), async (req, res) => {
@@ -81,25 +88,32 @@ router.delete("/public", async (req, res) => {
 
 // FOTO PERFIL - Upload
 router.post("/foto-perfil", upload.single("arquivo"), async (req, res) => {
-  const { email } = req.query;
+  const { email, name } = req.query;
   const arquivo = req.file;
 
-  if (!email || !arquivo)
+  if (!email || !arquivo) {
     return res.status(400).json({ erro: "Email e arquivo são obrigatórios." });
+  }
 
   try {
     const containerClient = blobServiceClient.getContainerClient(containerName);
     await containerClient.createIfNotExists();
 
-    const blobName = `${email}/foto-perfil.jpg`;
+    const safeName = (name || "foto-perfil.jpg").replace(
+      /[^a-zA-Z0-9@._-]/g,
+      ""
+    );
+    const blobName = `${email}/${safeName}`;
     const blockBlobClient = containerClient.getBlockBlobClient(blobName);
 
     await blockBlobClient.uploadData(arquivo.buffer, {
-      blobHTTPHeaders: { blobContentType: arquivo.mimetype },
+      blobHTTPHeaders: {
+        blobContentType: arquivo.mimetype,
+        blobCacheControl: "public, max-age=31536000, immutable",
+      },
     });
 
     const url = `${process.env.AZURE_BLOB_URL}/${blobName}`;
-
     res.status(200).json({ mensagem: "Foto enviada com sucesso!", url });
   } catch (erro) {
     console.error("Erro no upload de foto:", erro.message);
