@@ -61,12 +61,15 @@ function pipeThumb(readStream, res, { w, h, fit = "cover" }) {
   readStream.pipe(transformer).pipe(res);
 }
 
-// GET /eventos/cover-thumb/group/:group?w=350&h=200&fit=cover
+// GET /eventos/cover-thumb/group/:group
 router.get("/cover-thumb/group/:group", async (req, res) => {
   try {
     const { group } = req.params;
     const blob = await findExistingCoverBlob(groupPrefix(group));
     if (!blob) return res.status(404).send("Capa não encontrada.");
+
+    if (await setCacheHeadersFromBlob(res, blob, req)) return;
+
     const dl = await blob.download();
     const w = Math.max(1, parseInt(req.query.w, 10) || 350);
     const h = Math.max(1, parseInt(req.query.h, 10) || 200);
@@ -86,6 +89,9 @@ router.get("/cover-thumb/album/:group/:album", async (req, res) => {
     const { group, album } = req.params;
     const blob = await findExistingCoverBlob(albumPrefix(group, album));
     if (!blob) return res.status(404).send("Capa não encontrada.");
+
+    if (await setCacheHeadersFromBlob(res, blob, req)) return;
+
     const dl = await blob.download();
     const w = Math.max(1, parseInt(req.query.w, 10) || 350);
     const h = Math.max(1, parseInt(req.query.h, 10) || 200);
