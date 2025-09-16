@@ -222,9 +222,23 @@ router.get("/groups", async (_req, res) => {
       const coverLegacy = `${basePrefix}${slug}/_cover.jpg`;
       let coverUrl = "";
       if (await container.getBlockBlobClient(cover1x).exists()) {
-        coverUrl = container.getBlockBlobClient(cover1x).url;
+        const b = container.getBlockBlobClient(cover1x);
+        const props = await b.getProperties();
+        const v = (
+          props.etag ||
+          props.lastModified?.toISOString() ||
+          ""
+        ).replace(/"/g, "");
+        coverUrl = v ? `${b.url}?v=${encodeURIComponent(v)}` : b.url;
       } else if (await container.getBlockBlobClient(coverLegacy).exists()) {
-        coverUrl = container.getBlockBlobClient(coverLegacy).url;
+        const b = container.getBlockBlobClient(coverLegacy);
+        const props = await b.getProperties();
+        const v = (
+          props.etag ||
+          props.lastModified?.toISOString() ||
+          ""
+        ).replace(/"/g, "");
+        coverUrl = v ? `${b.url}?v=${encodeURIComponent(v)}` : b.url;
       }
 
       // contagem de álbuns
@@ -342,13 +356,27 @@ router.get("/:group/albums", async (req, res) => {
       // capa: tenta @1x, depois legado
       const c1 = `${base}${slug}/_cover@1x.jpg`;
       const cLegacy = `${base}${slug}/_cover.jpg`;
+
       let coverUrl = "";
       if (await container.getBlockBlobClient(c1).exists()) {
-        coverUrl = container.getBlockBlobClient(c1).url;
+        const b = container.getBlockBlobClient(c1);
+        const props = await b.getProperties();
+        const v = (
+          props.etag ||
+          props.lastModified?.toISOString() ||
+          ""
+        ).replace(/"/g, "");
+        coverUrl = v ? `${b.url}?v=${encodeURIComponent(v)}` : b.url;
       } else if (await container.getBlockBlobClient(cLegacy).exists()) {
-        coverUrl = container.getBlockBlobClient(cLegacy).url;
+        const b = container.getBlockBlobClient(cLegacy);
+        const props = await b.getProperties();
+        const v = (
+          props.etag ||
+          props.lastModified?.toISOString() ||
+          ""
+        ).replace(/"/g, "");
+        coverUrl = v ? `${b.url}?v=${encodeURIComponent(v)}` : b.url;
       }
-
       // contagem de fotos
       let count = 0;
       for await (const b of container.listBlobsFlat({
