@@ -39,9 +39,26 @@ async function findExistingCoverBlob(prefix) {
   return null;
 }
 
+async function setCacheHeadersFromBlob(res, blob, req) {
+  const props = await blob.getProperties(); // pega etag/lastModified do Azure
+  const etag = props.etag;
+  const lastMod = props.lastModified?.toUTCString();
+
+  // Se o cliente mandou If-None-Match igual, 304
+  if (req.headers["if-none-match"] === etag) {
+    res.status(304).end();
+    return true;
+  }
+
+  if (etag) res.setHeader("ETag", etag);
+  if (lastMod) res.setHeader("Last-Modified", lastMod);
+  // Sem immutable. Força revalidação barata.
+  res.setHeader("Cache-Control", "public, max-age=0, must-revalidate");
+  return false;
+}
+
 function pipeThumb(readStream, res, { w, h, fit = "cover" }) {
   res.setHeader("Content-Type", "image/jpeg");
-  res.setHeader("Cache-Control", "public, max-age=86400, immutable"); // 1 dia
   const transformer = sharp()
     .rotate()
     .resize({
@@ -58,6 +75,7 @@ function pipeThumb(readStream, res, { w, h, fit = "cover" }) {
       progressive: true,
       chromaSubsampling: "4:4:4",
     });
+
   readStream.pipe(transformer).pipe(res);
 }
 
