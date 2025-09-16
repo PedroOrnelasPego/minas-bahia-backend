@@ -86,7 +86,7 @@ router.delete("/public", async (req, res) => {
   }
 });
 
-// FOTO PERFIL - Upload
+// FOTO PERFIL - Upload (agora aceita ?name=)
 router.post("/foto-perfil", upload.single("arquivo"), async (req, res) => {
   const { email, name } = req.query;
   const arquivo = req.file;
@@ -121,16 +121,22 @@ router.post("/foto-perfil", upload.single("arquivo"), async (req, res) => {
   }
 });
 
-// FOTO PERFIL - Delete
+// FOTO PERFIL - Delete (apaga @1x, @2x e legado)
 router.delete("/foto-perfil", async (req, res) => {
   const { email } = req.query;
   if (!email) return res.status(400).json({ erro: "Email é obrigatório." });
 
   try {
-    const blobName = `${email}/foto-perfil.jpg`;
     const containerClient = blobServiceClient.getContainerClient(containerName);
-    await containerClient.getBlockBlobClient(blobName).deleteIfExists();
-    res.status(200).json({ mensagem: "Foto deletada com sucesso!" });
+    const names = [
+      `${email}/foto-perfil@1x.jpg`,
+      `${email}/foto-perfil@2x.jpg`,
+      `${email}/foto-perfil.jpg`, // legado
+    ];
+    await Promise.all(
+      names.map((n) => containerClient.getBlockBlobClient(n).deleteIfExists())
+    );
+    res.status(200).json({ mensagem: "Foto(s) deletada(s) com sucesso!" });
   } catch (erro) {
     console.error("Erro ao deletar foto:", erro.message);
     res.status(500).json({ erro: "Erro ao deletar a foto." });
