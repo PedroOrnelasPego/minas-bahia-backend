@@ -1,4 +1,3 @@
-// routes/eventos.js
 import express from "express";
 import multer from "multer";
 import { BlobServiceClient } from "@azure/storage-blob";
@@ -28,6 +27,12 @@ async function streamToString(readable) {
   return Buffer.concat(chunks).toString("utf-8");
 }
 
+// normaliza nome recebido via query (?name=)
+function safeName(name, fallback) {
+  const clean = String(name || "").replace(/[^a-zA-Z0-9@._-]/g, "");
+  return clean || fallback;
+}
+
 /** ===========================================================
  *                        GRUPOS
  *  ===========================================================
@@ -55,11 +60,15 @@ router.get("/groups", async (_req, res) => {
         title = (await streamToString(dl.readableStreamBody)).trim();
       }
 
-      // capa
-      const coverBlob = container.getBlockBlobClient(
-        `${basePrefix}${slug}/_cover.jpg`
-      );
-      const coverUrl = (await coverBlob.exists()) ? coverBlob.url : "";
+      // capa: primeiro tenta @1x, depois legado
+      const cover1x = `${basePrefix}${slug}/_cover@1x.jpg`;
+      const coverLegacy = `${basePrefix}${slug}/_cover.jpg`;
+      let coverUrl = "";
+      if (await container.getBlockBlobClient(cover1x).exists()) {
+        coverUrl = container.getBlockBlobClient(cover1x).url;
+      } else if (await container.getBlockBlobClient(coverLegacy).exists()) {
+        coverUrl = container.getBlockBlobClient(coverLegacy).url;
+      }
 
       // contagem de álbuns
       const albumsPrefix = `${basePrefix}${slug}/albuns/`;
@@ -128,13 +137,15 @@ router.post(
       if (!file)
         return res.status(400).json({ erro: "Arquivo 'cover' é obrigatório." });
 
-      const blobName = `${groupPrefix(groupSlug)}_cover.jpg`;
+      const name = safeName(req.query?.name, "_cover.jpg");
+      const blobName = `${groupPrefix(groupSlug)}${name}`;
       const block = container.getBlockBlobClient(blobName);
       await block.uploadData(file.buffer, {
         blobHTTPHeaders: {
           blobContentType: file.mimetype,
           cacheControl: "no-cache, max-age=0",
         },
+        overwrite: true,
       });
 
       res.json({ url: block.url });
@@ -171,11 +182,15 @@ router.get("/:group/albums", async (req, res) => {
         title = (await streamToString(dl.readableStreamBody)).trim();
       }
 
-      // capa
-      const coverBlob = container.getBlockBlobClient(
-        `${base}${slug}/_cover.jpg`
-      );
-      const coverUrl = (await coverBlob.exists()) ? coverBlob.url : "";
+      // capa: tenta @1x, depois legado
+      const c1 = `${base}${slug}/_cover@1x.jpg`;
+      const cLegacy = `${base}${slug}/_cover.jpg`;
+      let coverUrl = "";
+      if (await container.getBlockBlobClient(c1).exists()) {
+        coverUrl = container.getBlockBlobClient(c1).url;
+      } else if (await container.getBlockBlobClient(cLegacy).exists()) {
+        coverUrl = container.getBlockBlobClient(cLegacy).url;
+      }
 
       // contagem de fotos
       let count = 0;
@@ -190,16 +205,14 @@ router.get("/:group/albums", async (req, res) => {
     }
 
     const numFrom = (s) => {
-      const m = (s || "").match(/\d+/); // pega o primeiro número que aparecer
+      const m = (s || "").match(/\d+/);
       return m ? parseInt(m[0], 10) : null;
     };
 
     albums.sort((a, b) => {
       const an = numFrom(a.title) ?? numFrom(a.slug) ?? -Infinity;
       const bn = numFrom(b.title) ?? numFrom(b.slug) ?? -Infinity;
-
-      if (an !== bn) return bn - an; // decrescente pelo número (15, 13, 11, 10, 9, 8...)
-      // empate: ordena por título de forma “natural” (ainda decrescente)
+      if (an !== bn) return bn - an;
       return b.title.localeCompare(a.title, "pt-BR", {
         numeric: true,
         sensitivity: "base",
@@ -240,7 +253,7 @@ router.post("/:group/albums", async (req, res) => {
 router.delete("/:group/:album/photos/:name", async (req, res) => {
   try {
     const { group, album, name } = req.params;
-    const decoded = decodeURIComponent(name); // volta ao nome exato do blob
+    const decoded = decodeURIComponent(name);
     const blobName = `${albumPrefix(group, album)}${decoded}`;
     await container.getBlockBlobClient(blobName).deleteIfExists();
     res.json({ ok: true });
@@ -254,13 +267,10 @@ router.delete("/:group/:album/photos/:name", async (req, res) => {
 router.delete("/:group/albums/:album", async (req, res) => {
   try {
     const { group, album } = req.params;
-    const prefix = albumPrefix(group, album); // ex.: grupos/<group>/albuns/<album>/
-
-    // remove todos os blobs dentro do "diretório" do álbum
+    const prefix = albumPrefix(group, album);
     for await (const b of container.listBlobsFlat({ prefix })) {
       await container.getBlockBlobClient(b.name).deleteIfExists();
     }
-
     res.json({ ok: true });
   } catch (e) {
     console.error(e);
@@ -279,13 +289,15 @@ router.post(
       if (!file)
         return res.status(400).json({ erro: "Arquivo 'cover' é obrigatório." });
 
-      const blobName = `${albumPrefix(groupSlug, albumSlug)}_cover.jpg`;
+      const name = safeName(req.query?.name, "_cover.jpg");
+      const blobName = `${albumPrefix(groupSlug, albumSlug)}${name}`;
       const block = container.getBlockBlobClient(blobName);
       await block.uploadData(file.buffer, {
         blobHTTPHeaders: {
           blobContentType: file.mimetype,
           cacheControl: "no-cache, max-age=0",
         },
+        overwrite: true,
       });
 
       res.json({ url: block.url });
@@ -300,7 +312,6 @@ router.post(
  *                        FOTOS
  *  ===========================================================
  */
-// GET /eventos/:group/:album/photos
 router.get("/:group/:album/photos", async (req, res) => {
   try {
     const { group, album } = req.params;
@@ -339,7 +350,6 @@ router.get("/:group/:album/photos", async (req, res) => {
   }
 });
 
-// POST /eventos/:group/:album/photos   (form-data: fotos[])
 router.post(
   "/:group/:album/photos",
   upload.array("fotos"),
