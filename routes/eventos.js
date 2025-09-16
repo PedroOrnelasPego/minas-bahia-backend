@@ -28,6 +28,80 @@ async function streamToString(readable) {
   return Buffer.concat(chunks).toString("utf-8");
 }
 
+//adiciona na versão "1.0.8"
+
+async function findExistingCoverBlob(prefix) {
+  // tenta @1x, depois legado
+  for (const name of ["_cover@1x.jpg", "_cover.jpg"]) {
+    const b = container.getBlockBlobClient(`${prefix}${name}`);
+    if (await b.exists()) return b;
+  }
+  return null;
+}
+
+function pipeThumb(readStream, res, { w, h, fit = "cover" }) {
+  res.setHeader("Content-Type", "image/jpeg");
+  res.setHeader("Cache-Control", "public, max-age=86400, immutable"); // 1 dia
+  const transformer = sharp()
+    .rotate()
+    .resize({
+      width: w,
+      height: h,
+      fit: ["contain", "inside", "outside"].includes(fit) ? fit : "cover",
+      position: "attention",
+      withoutEnlargement: false,
+      kernel: sharp.kernel.lanczos3,
+    })
+    .jpeg({
+      quality: 86,
+      mozjpeg: true,
+      progressive: true,
+      chromaSubsampling: "4:4:4",
+    });
+  readStream.pipe(transformer).pipe(res);
+}
+
+// GET /eventos/cover-thumb/group/:group?w=350&h=200&fit=cover
+router.get("/cover-thumb/group/:group", async (req, res) => {
+  try {
+    const { group } = req.params;
+    const blob = await findExistingCoverBlob(groupPrefix(group));
+    if (!blob) return res.status(404).send("Capa não encontrada.");
+    const dl = await blob.download();
+    const w = Math.max(1, parseInt(req.query.w, 10) || 350);
+    const h = Math.max(1, parseInt(req.query.h, 10) || 200);
+    pipeThumb(dl.readableStreamBody, res, {
+      w,
+      h,
+      fit: String(req.query.fit || "cover"),
+    });
+  } catch (e) {
+    console.error("Erro cover-thumb group:", e);
+    res.status(500).send("Erro ao gerar capa.");
+  }
+});
+
+router.get("/cover-thumb/album/:group/:album", async (req, res) => {
+  try {
+    const { group, album } = req.params;
+    const blob = await findExistingCoverBlob(albumPrefix(group, album));
+    if (!blob) return res.status(404).send("Capa não encontrada.");
+    const dl = await blob.download();
+    const w = Math.max(1, parseInt(req.query.w, 10) || 350);
+    const h = Math.max(1, parseInt(req.query.h, 10) || 200);
+    pipeThumb(dl.readableStreamBody, res, {
+      w,
+      h,
+      fit: String(req.query.fit || "cover"),
+    });
+  } catch (e) {
+    console.error("Erro cover-thumb album:", e);
+    res.status(500).send("Erro ao gerar capa.");
+  }
+});
+
+// adicionado na versão "1.0.8"
+
 // normaliza nome recebido via query (?name=)
 function safeName(name, fallback) {
   const clean = String(name || "").replace(/[^a-zA-Z0-9@._-]/g, "");
