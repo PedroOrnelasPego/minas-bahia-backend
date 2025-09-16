@@ -564,4 +564,38 @@ router.put("/:group/albums/:album/title", async (req, res) => {
   }
 });
 
+// DELETE /eventos/groups/:groupSlug/cover
+router.delete("/groups/:groupSlug/cover", async (req, res) => {
+  try {
+    const { groupSlug } = req.params;
+    const names = ["_cover@1x.jpg", "_cover@2x.jpg", "_cover.jpg"];
+    for (const n of names) {
+      await container
+        .getBlockBlobClient(`${groupPrefix(groupSlug)}${n}`)
+        .deleteIfExists();
+    }
+    res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ erro: "Erro ao remover capa do grupo." });
+  }
+});
+
+// DELETE /eventos/:groupSlug/albums/:albumSlug/cover
+router.delete("/:groupSlug/albums/:albumSlug/cover", async (req, res) => {
+  try {
+    const { groupSlug, albumSlug } = req.params;
+    const names = ["_cover@1x.jpg", "_cover@2x.jpg", "_cover.jpg"];
+    for (const n of names) {
+      await container
+        .getBlockBlobClient(`${albumPrefix(groupSlug, albumSlug)}${n}`)
+        .deleteIfExists();
+    }
+    res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ erro: "Erro ao remover capa do álbum." });
+  }
+});
+
 export default router;
