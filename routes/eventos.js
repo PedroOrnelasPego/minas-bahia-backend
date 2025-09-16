@@ -2,6 +2,7 @@ import express from "express";
 import multer from "multer";
 import { BlobServiceClient } from "@azure/storage-blob";
 import dotenv from "dotenv";
+import sharp from "sharp"; // ✅ miniaturas on-the-fly
 dotenv.config();
 
 const router = express.Router();
@@ -32,6 +33,64 @@ function safeName(name, fallback) {
   const clean = String(name || "").replace(/[^a-zA-Z0-9@._-]/g, "");
   return clean || fallback;
 }
+
+/** ===========================================================
+ *               THUMB DAS FOTOS (on-the-fly, SEM salvar)
+ *  GET /eventos/thumb/:group/:album/:name?w=400&h=220&fit=cover
+ *  ===========================================================
+ */
+router.get("/thumb/:group/:album/:name", async (req, res) => {
+  try {
+    const { group, album, name } = req.params;
+    const decoded = decodeURIComponent(name);
+    const w = Math.max(1, parseInt(req.query.w, 10) || 400);
+    const h = Math.max(1, parseInt(req.query.h, 10) || 220);
+    const fit = (req.query.fit || "cover").toLowerCase(); // cover | contain | inside | outside
+
+    const blobName = `${albumPrefix(group, album)}${decoded}`;
+    const b = container.getBlockBlobClient(blobName);
+    if (!(await b.exists())) {
+      return res.status(404).send("Foto não encontrada.");
+    }
+
+    // stream -> sharp -> jpeg otimizado (qualidade alta, sem oversharpen)
+    const download = await b.download();
+    res.setHeader("Content-Type", "image/jpeg");
+    res.setHeader("Cache-Control", "public, max-age=86400, immutable"); // 1 dia
+
+    // atenção/entropy ajuda a evitar cortes ruins em grupos de pessoas
+    const position = "attention";
+
+    const transformer = sharp()
+      .rotate() // respeita EXIF
+      .resize({
+        width: w,
+        height: h,
+        fit:
+          fit === "contain"
+            ? "contain"
+            : fit === "inside"
+            ? "inside"
+            : fit === "outside"
+            ? "outside"
+            : "cover",
+        position,
+        withoutEnlargement: false,
+        kernel: sharp.kernel.lanczos3,
+      })
+      .jpeg({
+        quality: 86,
+        mozjpeg: true,
+        progressive: true,
+        chromaSubsampling: "4:4:4",
+      });
+
+    download.readableStreamBody.pipe(transformer).pipe(res);
+  } catch (e) {
+    console.error("Erro ao gerar thumb:", e);
+    res.status(500).send("Erro ao gerar miniatura.");
+  }
+});
 
 /** ===========================================================
  *                        GRUPOS
