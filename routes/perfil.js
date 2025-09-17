@@ -1,4 +1,3 @@
-// routes/perfil.js
 import express from "express";
 import {
   buscarPerfil,
@@ -10,7 +9,7 @@ import {
 const router = express.Router();
 
 // GET /perfil
-router.get("/", async (req, res) => {
+router.get("/", async (_req, res) => {
   try {
     const perfis = await listarPerfis();
     res.status(200).json(perfis);
@@ -46,39 +45,19 @@ router.post("/", async (req, res) => {
   }
 });
 
-// PUT /perfil/:email
+// PUT /perfil/:email (único)
 router.put("/:email", async (req, res) => {
   const { email } = req.params;
   const updates = req.body;
 
   try {
-    // lê, mescla e substitui
     const { resource: perfil } = await container.item(email, email).read();
     const atualizado = { ...perfil, ...updates };
     await container.item(email, email).replace(atualizado);
-    res.json({ mensagem: "Atualizado com sucesso." });
+    res.json({ mensagem: "Perfil atualizado com sucesso." });
   } catch (err) {
     console.error(err);
     res.status(500).json({ erro: "Erro ao atualizar perfil." });
-  }
-});
-
-// ❌ Remova todos os outros PUT, deixe só este:
-router.put("/:email", async (req, res) => {
-  const { email } = req.params;
-  const updates = req.body;
-
-  try {
-    // lê o documento pelo partitionKey = email
-    const { resource: perfil } = await container.item(email, email).read();
-    // mescla o que veio na requisição
-    const atualizado = { ...perfil, ...updates };
-    // grava de volta
-    await container.item(email, email).replace(atualizado);
-    return res.json({ mensagem: "Perfil atualizado com sucesso." });
-  } catch (err) {
-    console.error(err);
-    return res.status(500).json({ erro: "Erro ao atualizar perfil." });
   }
 });
 
