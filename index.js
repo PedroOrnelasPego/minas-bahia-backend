@@ -4,8 +4,9 @@ import dotenv from "dotenv";
 import perfilRouter from "./routes/perfil.js";
 import uploadRouter from "./routes/upload.js";
 import eventosRoutes from "./routes/eventos.js";
+import authRoutes from "./routes/authGoogle.js"; // 👈 FALTAVA
 
-// 👇 importa o package.json e pega a versão
+// 👇 package.json (type: "json") ok se estiver com Node 20+
 import pkg from "./package.json" with { type: "json" };
 const VERSION = pkg.version;
 
@@ -14,39 +15,33 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 4000;
 
-// Middlewares globais
-app.use(cors());
+/** ===== Middlewares globais (ANTES das rotas) ===== */
+// Se NÃO usar cookie httpOnly por enquanto:
+app.use(cors({ origin: ["http://localhost:5173"] }));
+// Se for usar cookie httpOnly, troque por:
+// app.use(cors({ origin: ["http://localhost:5173"], credentials: true }));
+
 app.use(express.json());
 
-// Rotas da aplicação
+/** ===== Rotas ===== */
+app.use("/auth", authRoutes);      // 👈 MONTE AQUI
 app.use("/perfil", perfilRouter);
 app.use("/upload", uploadRouter);
 app.use("/eventos", eventosRoutes);
 
 // Rota raiz
-app.get("/", (req, res) => {
-  res.send(`Backend está rodando! 🚀 v${VERSION}`);
-});
+app.get("/", (_req, res) => res.send(`Backend está rodando! 🚀 v${VERSION}`));
 
-// Rota de verificação (health check)
-app.get("/health", async (req, res) => {
+// Health
+app.get("/health", async (_req, res) => {
   try {
     res.status(200).send(`Conexão OK com CosmosDB 🎉 v${VERSION}`);
-  } catch (error) {
+  } catch {
     res.status(500).send(`Erro ao conectar com o banco ❌ v${VERSION}`);
   }
 });
 
-// Inicialização do servidor
+/** ===== Inicialização ===== */
 app.listen(PORT, () => {
   console.log(`✅ Servidor v${VERSION} rodando na porta ${PORT}`);
 });
-
-app.use(
-  cors({
-    origin: ["http://localhost:5173"], // e seu domínio de produção depois
-    credentials: true,
-  })
-);
-
-app.use("/auth", authRoutes);
