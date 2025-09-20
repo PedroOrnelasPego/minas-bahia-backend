@@ -41,3 +41,12 @@ app.get("/health", async (req, res) => {
 app.listen(PORT, () => {
   console.log(`✅ Servidor v${VERSION} rodando na porta ${PORT}`);
 });
+
+app.use(
+  cors({
+    origin: ["http://localhost:5173"], // e seu domínio de produção depois
+    credentials: true,
+  })
+);
+
+app.use("/auth", authRoutes);
