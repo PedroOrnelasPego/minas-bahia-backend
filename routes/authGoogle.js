@@ -7,6 +7,16 @@ const router = express.Router();
 const { GOOGLE_CLIENT_ID } = process.env;
 const googleClient = new OAuth2Client(GOOGLE_CLIENT_ID);
 
+// util simples p/ normalizar email
+function cleanEmail(v) {
+  if (!v) return null;
+  const s = String(v)
+    .trim()
+    .replace(/^"+|"+$/g, "")
+    .toLowerCase();
+  return s.includes("@") ? s : null;
+}
+
 router.post("/google", async (req, res) => {
   try {
     const { idToken } = req.body;
@@ -18,28 +28,32 @@ router.post("/google", async (req, res) => {
     });
     const payload = ticket.getPayload();
 
-    if (!payload?.email) {
+    const emailRaw = payload?.email;
+    const email = cleanEmail(emailRaw);
+
+    if (!email) {
       return res.status(401).json({ erro: "Email não encontrado no token" });
     }
     if (!payload.email_verified) {
       return res.status(401).json({ erro: "Email do Google não verificado" });
     }
 
-    const email = payload.email;
+    // 👉 se já existe, NÃO sobrescreva (evita apagar cadastro)
+    const existente = await buscarPerfil(email);
 
-    // Se não existir, grava casca padronizada; se existir, apenas garante canonicidade.
-    const jaExiste = !!(await buscarPerfil(email));
-    await upsertPerfil({
-      id: email,
-      email,
-      criadoVia: "google",
-      // não preenche nome aqui — o front coleta no CadastroInicial
-      nivelAcesso: "visitante",
-      permissaoEventos: "leitor",
-      aceitouTermos: false,
-    });
+    if (!existente) {
+      // cria casca padrão só na primeira vez
+      await upsertPerfil({
+        id: email,
+        email,
+        criadoVia: "google",
+        nivelAcesso: "visitante",
+        permissaoEventos: "leitor",
+        aceitouTermos: false,
+      });
+    }
 
-    return res.status(200).json({ ok: true, email, novo: !jaExiste });
+    return res.status(200).json({ ok: true, email, novo: !existente });
   } catch (err) {
     console.error("Erro /auth/google:", err?.message || err);
     return res.status(401).json({ erro: "Token inválido ou rejeitado" });
