@@ -1,3 +1,5 @@
+//index.js
+
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
@@ -17,7 +19,7 @@ const PORT = process.env.PORT || 4000;
 
 /** ===== Middlewares globais (ANTES das rotas) ===== */
 // Se NÃO usar cookie httpOnly por enquanto:
-app.use(cors({ origin: ["http://localhost:5173"] }));
+app.use(cors({ origin: ["http://localhost:5173", "https://zealous-bay-00b08311e.6.azurestaticapps.net"] }));
 // Se for usar cookie httpOnly, troque por:
 // app.use(cors({ origin: ["http://localhost:5173"], credentials: true }));
 
