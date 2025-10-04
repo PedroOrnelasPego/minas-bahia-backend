@@ -2,6 +2,7 @@ import express from "express";
 import multer from "multer";
 import { BlobServiceClient } from "@azure/storage-blob";
 import dotenv from "dotenv";
+import { v4 as uuid } from "uuid";
 
 dotenv.config();
 const router = express.Router();
@@ -280,6 +281,54 @@ router.get("/certificados/:email/:arquivo", async (req, res) => {
   } catch (erro) {
     console.error("Erro ao buscar arquivo:", erro.message);
     res.status(500).send("Erro ao buscar o arquivo.");
+  }
+});
+
+router.post("/certificado", upload.single("arquivo"), async (req, res) => {
+  const { email } = req.query;
+  const { corda, data } = req.body || {};
+  const arquivo = req.file;
+
+  if (!email || !arquivo || !corda || !data) {
+    return res
+      .status(400)
+      .json({ erro: "email, arquivo, corda e data são obrigatórios." });
+  }
+
+  try {
+    await containerClient.createIfNotExists();
+
+    const original = (arquivo.originalname || "certificado").replace(
+      /[^\w.\- ]+/g,
+      ""
+    );
+    const blobName = `${email}/certificados/${Date.now()}-${original}`;
+    const blockBlobClient = containerClient.getBlockBlobClient(blobName);
+
+    await blockBlobClient.uploadData(arquivo.buffer, {
+      blobHTTPHeaders: { blobContentType: arquivo.mimetype },
+    });
+
+    const url = `${process.env.AZURE_BLOB_URL}/${blobName}`;
+
+    const entry = {
+      id: uuid(),
+      corda,
+      data, // yyyy-MM-dd
+      blobName,
+      url,
+      contentType: arquivo.mimetype,
+      size: arquivo.size,
+      enviadoEm: new Date().toISOString(),
+      status: "pending",
+    };
+
+    await appendCertificado(email, entry);
+
+    res.status(201).json({ mensagem: "Enviado", certificado: entry });
+  } catch (erro) {
+    console.error("Erro /upload/certificado:", erro.message);
+    res.status(500).json({ erro: "Erro ao enviar certificado." });
   }
 });
 

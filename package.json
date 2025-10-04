@@ -1,6 +1,6 @@
 {
   "name": "backend",
-  "version": "3.0.4",
+  "version": "3.10.1",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
@@ -20,6 +20,7 @@
     "google-auth-library": "^10.3.0",
     "multer": "^2.0.1",
     "node-fetch": "^3.3.2",
-    "sharp": "^0.33.4"
+    "sharp": "^0.33.4",
+    "uuid": "^13.0.0"
   }
 }

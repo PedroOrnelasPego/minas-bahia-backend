@@ -43,6 +43,10 @@ const PERFIL_KEYS = [
   "permissaoEventos",
   "aceitouTermos",
 
+  // ===== novos =====
+  "cordaVerificada",
+  "certificadosTimeline",
+
   // extras opcionais
   "questionarios",
   "_attachments",
@@ -74,6 +78,9 @@ export function canonicalizePerfil(input = {}) {
     nivelAcesso: "visitante",
     permissaoEventos: "leitor",
     aceitouTermos: false,
+
+    cordaVerificada: false,
+    certificadosTimeline: [],
   };
 
   const id = input.email || input.id;
@@ -83,13 +90,8 @@ export function canonicalizePerfil(input = {}) {
 
   // monta em ordem
   const out = {};
-  for (const k of PERFIL_KEYS) {
-    if (src[k] !== undefined) out[k] = src[k];
-  }
-  // inclui quaisquer campos extras (caso futuro), no final
-  for (const k of Object.keys(src)) {
-    if (!(k in out)) out[k] = src[k];
-  }
+  for (const k of PERFIL_KEYS) if (src[k] !== undefined) out[k] = src[k];
+  for (const k of Object.keys(src)) if (!(k in out)) out[k] = src[k];
   return out;
 }
 
@@ -142,4 +144,28 @@ export async function testarConexao() {
     console.error("Erro ao conectar com CosmosDB:", error.message);
     return false;
   }
+}
+
+export async function appendCertificado(email, entry) {
+  const cur = (await buscarPerfil(email)) || { id: email, email };
+  const next = canonicalizePerfil({
+    ...cur,
+    certificadosTimeline: [...(cur.certificadosTimeline || []), entry],
+  });
+  const { resource } = await container.item(email, email).replace(next);
+  return resource;
+}
+
+export async function updateCertificado(email, certId, patch) {
+  const cur = await buscarPerfil(email);
+  if (!cur) throw new Error("Perfil não encontrado");
+
+  const list = [...(cur.certificadosTimeline || [])];
+  const idx = list.findIndex((x) => x.id === certId);
+  if (idx < 0) throw new Error("Certificado não encontrado");
+
+  list[idx] = { ...list[idx], ...patch };
+  const next = canonicalizePerfil({ ...cur, certificadosTimeline: list });
+  const { resource } = await container.item(email, email).replace(next);
+  return resource;
 }

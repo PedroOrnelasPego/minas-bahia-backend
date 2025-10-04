@@ -65,4 +65,79 @@ router.put("/:email", async (req, res) => {
   }
 });
 
+// timeline do usuário (ou já vem embutida no GET /perfil/:email)
+router.get("/:email/certificados", async (req, res) => {
+  try {
+    const perfil = await buscarPerfil(req.params.email);
+    if (!perfil) return res.status(404).json({ erro: "Perfil não encontrado" });
+    res.json(perfil.certificadosTimeline || []);
+  } catch (e) {
+    res.status(500).json({ erro: "Erro ao buscar timeline." });
+  }
+});
+
+// aprovar/reprovar um certificado (Painel Admin)
+router.put("/:email/certificados/:id", async (req, res) => {
+  try {
+    const { email, id } = req.params;
+    const { status, observacao, atualizarCorda } = req.body || {}; // status = "approved" | "rejected"
+
+    if (!["approved", "rejected"].includes(status)) {
+      return res.status(400).json({ erro: "status inválido" });
+    }
+
+    const perfil = await buscarPerfil(email);
+    if (!perfil) return res.status(404).json({ erro: "Perfil não encontrado" });
+
+    const atualizado = await updateCertificado(email, id, {
+      status,
+      revisao: {
+        por: "contato@capoeiraminasbahia.com.br",
+        em: new Date().toISOString(),
+        observacao: observacao || "",
+      },
+    });
+
+    // se aprovado e quiser refletir no perfil
+    if (status === "approved" && atualizarCorda === true) {
+      const cert = (atualizado.certificadosTimeline || []).find(
+        (c) => c.id === id
+      );
+      if (cert) {
+        await atualizarPerfil(email, {
+          corda: cert.corda,
+          cordaVerificada: true,
+        });
+      }
+    }
+
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("PUT /perfil/:email/certificados/:id", e.message);
+    res.status(500).json({ erro: "Erro ao atualizar certificado." });
+  }
+});
+
+// lista global de pendentes (para a página Admin)
+router.get("/__admin/pendentes", async (_req, res) => {
+  try {
+    const todos = await listarPerfis();
+    const pendentes = [];
+    for (const p of todos) {
+      for (const c of p.certificadosTimeline || []) {
+        if (c.status === "pending") {
+          pendentes.push({
+            email: p.email,
+            nome: p.nome,
+            ...c,
+          });
+        }
+      }
+    }
+    res.json(pendentes);
+  } catch (e) {
+    res.status(500).json({ erro: "Erro ao listar pendentes." });
+  }
+});
+
 export default router;
