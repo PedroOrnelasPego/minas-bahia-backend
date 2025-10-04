@@ -148,19 +148,27 @@ router.delete("/foto-perfil", async (req, res) => {
 const gerarNomeBlob = (email, originalName) =>
   `${email}/certificados/${Date.now()}-${originalName}`;
 
-// CERTIFICADO - Upload
+// === CERTIFICADO - Upload (PASTA POR DATA) ===
 router.post("/", upload.single("arquivo"), async (req, res) => {
+  // email vem na query (?email=), e "data" e "corda" vêm no body do multipart/form-data
   const { email } = req.query;
+  const { data: dataInformada, corda } = req.body || {};
   const arquivo = req.file;
 
-  if (!email || !arquivo)
+  if (!email || !arquivo) {
     return res.status(400).json({ erro: "Email e arquivo são obrigatórios." });
+  }
 
   try {
     const containerClient = blobServiceClient.getContainerClient(containerName);
     await containerClient.createIfNotExists();
 
-    const blobName = gerarNomeBlob(email, arquivo.originalname);
+    // pasta por data
+    const pastaData = toIsoDateFolder(dataInformada); // "YYYY-MM-DD"
+    const original = safeOriginalName(arquivo.originalname);
+
+    // caminho: <email>/certificados/<YYYY-MM-DD>/<nome-original>
+    const blobName = `${email}/certificados/${pastaData}/${original}`;
     const blockBlobClient = containerClient.getBlockBlobClient(blobName);
 
     await blockBlobClient.uploadData(arquivo.buffer, {
@@ -169,10 +177,32 @@ router.post("/", upload.single("arquivo"), async (req, res) => {
 
     const url = `${process.env.AZURE_BLOB_URL}/${blobName}`;
 
+    // (opcional) gravar um sidecar com metadados simples por upload
+    // Ex.: <email>/certificados/<YYYY-MM-DD>/.meta-<ts>.json
+    try {
+      const metaName = `${email}/certificados/${pastaData}/.meta-${Date.now()}.json`;
+      const metaClient = containerClient.getBlockBlobClient(metaName);
+      const meta = {
+        uploadedAt: new Date().toISOString(),
+        dataInformada: pastaData,
+        corda: corda || null,
+        originalName: original,
+        contentType: arquivo.mimetype,
+        size: arquivo.size,
+      };
+      await metaClient.uploadData(Buffer.from(JSON.stringify(meta)), {
+        blobHTTPHeaders: { blobContentType: "application/json" },
+      });
+    } catch (e) {
+      // só loga; não bloqueia o upload principal
+      console.warn("Falha ao gravar meta:", e?.message || e);
+    }
+
     res.status(200).json({
       mensagem: "Arquivo enviado com sucesso!",
       caminho: blobName,
       url,
+      data: pastaData,
     });
   } catch (erro) {
     console.error("Erro no upload:", erro.message);
@@ -331,5 +361,29 @@ router.post("/certificado", upload.single("arquivo"), async (req, res) => {
     res.status(500).json({ erro: "Erro ao enviar certificado." });
   }
 });
+
+// --- helpers (adicione perto do topo do arquivo) ---
+function toIsoDateFolder(input) {
+  // recebe "YYYY-MM-DD" (preferido) ou algo parseável
+  try {
+    if (!input) return new Date().toISOString().slice(0, 10); // hoje
+    // aceita "YYYY-MM", "YYYY", etc. Mas normalizamos para YYYY-MM-DD
+    const d = new Date(input);
+    if (isNaN(d.getTime())) return new Date().toISOString().slice(0, 10);
+    const yyyy = d.getUTCFullYear();
+    const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
+    const dd = String(d.getUTCDate()).padStart(2, "0");
+    return `${yyyy}-${mm}-${dd}`;
+  } catch {
+    return new Date().toISOString().slice(0, 10);
+  }
+}
+
+function safeOriginalName(name) {
+  // preserva o nome do usuário, mas evita barras e caracteres ruins
+  return String(name || "arquivo")
+    .replace(/[\\/:*?"<>|]+/g, "_")
+    .trim();
+}
 
 export default router;
