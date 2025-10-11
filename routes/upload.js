@@ -340,7 +340,7 @@ router.get("/timeline", async (req, res) => {
           ) || arquivosDaPasta[0];
 
         if (!match) continue;
-
+        const relativePath = match.fullName.replace(basePrefix, "");
         items.push({
           id: uuid(),
           corda: meta.corda || "",
@@ -348,12 +348,14 @@ router.get("/timeline", async (req, res) => {
           url: match.url,
           fileName: match.nameOnly,
           status: meta.status || "pending",
+          path: relativePath,
         });
       }
 
       // se não houver meta (legado)
       if (metas.length === 0) {
         for (const a of arquivosDaPasta) {
+          const relativePath = a.fullName.replace(basePrefix, "");
           items.push({
             id: uuid(),
             corda: "",
@@ -361,6 +363,7 @@ router.get("/timeline", async (req, res) => {
             url: a.url,
             fileName: a.nameOnly,
             status: "pending",
+            path: relativePath,
           });
         }
       }
