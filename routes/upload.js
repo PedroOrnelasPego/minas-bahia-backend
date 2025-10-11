@@ -369,6 +369,52 @@ router.get("/timeline", async (req, res) => {
       }
     }
 
+    // DELETE /upload?email=:email&arquivo=certificados/AAAA-MM-DD/arquivo.ext
+    router.delete("/", async (req, res) => {
+      const { email, arquivo } = req.query;
+      if (!email || !arquivo) {
+        return res
+          .status(400)
+          .json({ erro: "Parâmetros obrigatórios: email e arquivo." });
+      }
+
+      // caminho físico no container
+      const blobPath = `${email}/${arquivo}`; // ex.: pedro@x/certificados/2002-02-11/Minas.pdf
+
+      try {
+        // 1) apaga o arquivo principal
+        const blobClient = containerClient.getBlockBlobClient(blobPath);
+        const deleted = await blobClient.deleteIfExists();
+        if (!deleted.succeeded) {
+          return res.status(404).json({ erro: "Arquivo não encontrado." });
+        }
+
+        // 2) remove meta-jsons da pasta (se existirem)
+        // pasta = tudo antes do último "/"
+        const lastSlash = blobPath.lastIndexOf("/");
+        if (lastSlash !== -1) {
+          const pasta = blobPath.slice(0, lastSlash + 1); // inclui a barra final
+          for await (const b of containerClient.listBlobsFlat({
+            prefix: pasta,
+          })) {
+            const nameOnly = b.name.slice(pasta.length);
+            if (nameOnly.startsWith(".meta-") && nameOnly.endsWith(".json")) {
+              await containerClient.getBlockBlobClient(b.name).deleteIfExists();
+            }
+          }
+        }
+
+        return res.json({ mensagem: "Arquivo removido." });
+      } catch (e) {
+        console.error("DELETE /upload erro:", e?.message || e);
+        // tratamento de not found do SDK (defensivo)
+        if (e?.statusCode === 404 || e?.details?.errorCode === "BlobNotFound") {
+          return res.status(404).json({ erro: "Arquivo não encontrado." });
+        }
+        return res.status(500).json({ erro: "Erro ao remover arquivo." });
+      }
+    });
+
     res.json({ items });
   } catch (e) {
     console.error("Erro em GET /upload/timeline:", e.message);
