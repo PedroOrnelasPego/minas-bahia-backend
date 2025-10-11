@@ -88,7 +88,6 @@ export function canonicalizePerfil(input = {}) {
 
   const src = { ...defaults, ...input, id, email: id };
 
-  // monta em ordem
   const out = {};
   for (const k of PERFIL_KEYS) if (src[k] !== undefined) out[k] = src[k];
   for (const k of Object.keys(src)) if (!(k in out)) out[k] = src[k];
@@ -110,7 +109,6 @@ export async function buscarPerfil(email) {
     const { resource } = await container.item(email, email).read();
     return resource || null;
   } catch (e) {
-    // 404 => não existe
     if (e?.code === 404) return null;
     throw e;
   }
@@ -120,7 +118,6 @@ export async function buscarPerfil(email) {
 export async function upsertPerfil(perfilParcial) {
   const perfil = canonicalizePerfil(perfilParcial);
   const { resource } = await container.items.upsert(perfil, {
-    // garante que a PK é o id/email
     partitionKey: perfil.id,
   });
   return resource;

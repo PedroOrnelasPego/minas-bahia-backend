@@ -1,3 +1,4 @@
+// api/routes/upload.js
 import express from "express";
 import multer from "multer";
 import { BlobServiceClient } from "@azure/storage-blob";
@@ -18,33 +19,22 @@ const containerClient = blobServiceClient.getContainerClient(containerName);
 
 // Pastas fixas públicas
 const BASE_FOLDER = "documentos";
-const PASTAS = [
-  "aluno",
-  "graduado",
-  "monitor",
-  "instrutor",
-  "professor",
-  "contramestre",
-];
+const PASTAS = ["aluno", "graduado", "monitor", "instrutor", "professor", "contramestre"];
 
-/* ============================================================================
-   ÁREAS PÚBLICAS (download e upload por nível)
-============================================================================ */
+/* ============================================================================ */
+/* ÁREAS PÚBLICAS (download e upload por nível)                                 */
+/* ============================================================================ */
 router.post("/public", upload.single("arquivo"), async (req, res) => {
   const { pasta } = req.query;
   if (!PASTAS.includes(pasta))
     return res.status(400).json({ erro: "Pasta inválida." });
 
-  const blobName = `${BASE_FOLDER}/${pasta}/${Date.now()}-${
-    req.file.originalname
-  }`;
+  const blobName = `${BASE_FOLDER}/${pasta}/${Date.now()}-${req.file.originalname}`;
 
   try {
-    await containerClient
-      .getBlockBlobClient(blobName)
-      .uploadData(req.file.buffer, {
-        blobHTTPHeaders: { blobContentType: req.file.mimetype },
-      });
+    await containerClient.getBlockBlobClient(blobName).uploadData(req.file.buffer, {
+      blobHTTPHeaders: { blobContentType: req.file.mimetype },
+    });
     res.status(201).json({ mensagem: "Arquivo enviado." });
   } catch (e) {
     console.error(e);
@@ -90,9 +80,9 @@ router.delete("/public", async (req, res) => {
   }
 });
 
-/* ============================================================================
-   FOTO DE PERFIL
-============================================================================ */
+/* ============================================================================ */
+/* FOTO DE PERFIL                                                               */
+/* ============================================================================ */
 router.post("/foto-perfil", upload.single("arquivo"), async (req, res) => {
   const { email, name } = req.query;
   const arquivo = req.file;
@@ -103,20 +93,14 @@ router.post("/foto-perfil", upload.single("arquivo"), async (req, res) => {
   try {
     await containerClient.createIfNotExists();
 
-    const safeName = (name || "foto-perfil.jpg").replace(
-      /[^a-zA-Z0-9@._-]/g,
-      ""
-    );
-
+    const safeName = (name || "foto-perfil.jpg").replace(/[^a-zA-Z0-9@._-]/g, "");
     const blobName = `${email}/${safeName}`;
-    await containerClient
-      .getBlockBlobClient(blobName)
-      .uploadData(arquivo.buffer, {
-        blobHTTPHeaders: {
-          blobContentType: arquivo.mimetype,
-          blobCacheControl: "public, max-age=31536000, immutable",
-        },
-      });
+    await containerClient.getBlockBlobClient(blobName).uploadData(arquivo.buffer, {
+      blobHTTPHeaders: {
+        blobContentType: arquivo.mimetype,
+        blobCacheControl: "public, max-age=31536000, immutable",
+      },
+    });
 
     const url = `${process.env.AZURE_BLOB_URL}/${blobName}`;
     res.json({ mensagem: "Foto enviada com sucesso!", url });
@@ -132,11 +116,8 @@ router.delete("/foto-perfil", async (req, res) => {
 
   try {
     await Promise.all(
-      [
-        `${email}/foto-perfil@1x.jpg`,
-        `${email}/foto-perfil@2x.jpg`,
-        `${email}/foto-perfil.jpg`,
-      ].map((p) => containerClient.getBlockBlobClient(p).deleteIfExists())
+      [`${email}/foto-perfil@1x.jpg`, `${email}/foto-perfil@2x.jpg`, `${email}/foto-perfil.jpg`]
+        .map((p) => containerClient.getBlockBlobClient(p).deleteIfExists())
     );
     res.json({ mensagem: "Foto(s) deletada(s) com sucesso!" });
   } catch (e) {
@@ -145,11 +126,10 @@ router.delete("/foto-perfil", async (req, res) => {
   }
 });
 
-/* ============================================================================
-   CERTIFICADOS (PASTA POR DATA + META JSON)
-============================================================================ */
+/* ============================================================================ */
+/* CERTIFICADOS (PASTA POR DATA + META JSON)                                    */
+/* ============================================================================ */
 
-// Helpers
 function toIsoDateFolder(input) {
   try {
     if (!input) return new Date().toISOString().slice(0, 10);
@@ -165,17 +145,10 @@ function toIsoDateFolder(input) {
 }
 
 function safeOriginalName(name) {
-  return String(name || "arquivo")
-    .replace(/[\\/:*?"<>|]+/g, "_")
-    .trim();
+  return String(name || "arquivo").replace(/[\\/:*?"<>|]+/g, "_").trim();
 }
 
-/**
- * POST /upload
- * Cria estrutura:
- *   certificados/<email>/certificados/<YYYY-MM-DD>/<arquivo>
- *   certificados/<email>/certificados/<YYYY-MM-DD>/.meta-xxxx.json
- */
+/** POST /upload  (salva arquivo + meta pendente) */
 router.post("/", upload.single("arquivo"), async (req, res) => {
   const { email } = req.query;
   const { data: dataInformada, corda } = req.body || {};
@@ -192,11 +165,9 @@ router.post("/", upload.single("arquivo"), async (req, res) => {
 
     const blobName = `${email}/certificados/${pastaData}/${original}`;
 
-    await containerClient
-      .getBlockBlobClient(blobName)
-      .uploadData(arquivo.buffer, {
-        blobHTTPHeaders: { blobContentType: arquivo.mimetype },
-      });
+    await containerClient.getBlockBlobClient(blobName).uploadData(arquivo.buffer, {
+      blobHTTPHeaders: { blobContentType: arquivo.mimetype },
+    });
 
     // meta JSON
     try {
@@ -211,32 +182,23 @@ router.post("/", upload.single("arquivo"), async (req, res) => {
         status: "pending",
       };
 
-      await containerClient
-        .getBlockBlobClient(metaName)
-        .uploadData(Buffer.from(JSON.stringify(meta)), {
-          blobHTTPHeaders: { blobContentType: "application/json" },
-        });
+      await containerClient.getBlockBlobClient(metaName).uploadData(
+        Buffer.from(JSON.stringify(meta)),
+        { blobHTTPHeaders: { blobContentType: "application/json" } }
+      );
     } catch (e) {
       console.warn("Falha ao gravar meta:", e?.message || e);
     }
 
     const url = `${process.env.AZURE_BLOB_URL}/${blobName}`;
-    res.json({
-      mensagem: "Arquivo enviado com sucesso!",
-      caminho: blobName,
-      url,
-      data: pastaData,
-    });
+    res.json({ mensagem: "Arquivo enviado com sucesso!", caminho: blobName, url, data: pastaData });
   } catch (e) {
     console.error("Erro no upload:", e.message);
     res.status(500).json({ erro: "Erro ao enviar arquivo." });
   }
 });
 
-/**
- * GET /upload
- * Lista apenas arquivos (ignora .meta-*.json)
- */
+/** GET /upload  (lista somente os arquivos, ignora metas) */
 router.get("/", async (req, res) => {
   const { email } = req.query;
   if (!email) return res.status(400).json({ erro: "Email é obrigatório." });
@@ -260,10 +222,46 @@ router.get("/", async (req, res) => {
   }
 });
 
-/**
- * GET /upload/certificados/:email/:arquivo
- * Baixa o arquivo diretamente (proxy)
- */
+/** DELETE /upload?email=...&arquivo=certificados/YYYY-MM-DD/arquivo.ext */
+router.delete("/", async (req, res) => {
+  const { email, arquivo } = req.query;
+  if (!email || !arquivo) {
+    return res.status(400).json({ erro: "Parâmetros obrigatórios: email e arquivo." });
+  }
+
+  const blobPath = `${email}/${arquivo}`;
+
+  try {
+    // 1) apaga o arquivo principal
+    const blobClient = containerClient.getBlockBlobClient(blobPath);
+    const deleted = await blobClient.deleteIfExists();
+    if (!deleted.succeeded) {
+      return res.status(404).json({ erro: "Arquivo não encontrado." });
+    }
+
+    // 2) remove meta-jsons da pasta (se existirem)
+    const lastSlash = blobPath.lastIndexOf("/");
+    if (lastSlash !== -1) {
+      const pasta = blobPath.slice(0, lastSlash + 1);
+      for await (const b of containerClient.listBlobsFlat({ prefix: pasta })) {
+        const nameOnly = b.name.slice(pasta.length);
+        if (nameOnly.startsWith(".meta-") && nameOnly.endsWith(".json")) {
+          await containerClient.getBlockBlobClient(b.name).deleteIfExists();
+        }
+      }
+    }
+
+    return res.json({ mensagem: "Arquivo removido." });
+  } catch (e) {
+    console.error("DELETE /upload erro:", e?.message || e);
+    if (e?.statusCode === 404 || e?.details?.errorCode === "BlobNotFound") {
+      return res.status(404).json({ erro: "Arquivo não encontrado." });
+    }
+    return res.status(500).json({ erro: "Erro ao remover arquivo." });
+  }
+});
+
+/** GET /upload/certificados/:email/:arquivo  (proxy direto) */
 router.get("/certificados/:email/:arquivo", async (req, res) => {
   const { email, arquivo } = req.params;
 
@@ -283,10 +281,7 @@ router.get("/certificados/:email/:arquivo", async (req, res) => {
   }
 });
 
-/**
- * GET /upload/timeline
- * Retorna a timeline consolidada (lendo .meta-*.json)
- */
+/** GET /upload/timeline  (lê metas e monta a timeline) */
 router.get("/timeline", async (req, res) => {
   const { email } = req.query;
   if (!email) return res.status(400).json({ erro: "Email é obrigatório." });
@@ -296,16 +291,13 @@ router.get("/timeline", async (req, res) => {
     const items = [];
     const datas = new Set();
 
-    // coleta todas as pastas (YYYY-MM-DD)
-    for await (const blob of containerClient.listBlobsFlat({
-      prefix: basePrefix,
-    })) {
+    // coleta pastas data
+    for await (const blob of containerClient.listBlobsFlat({ prefix: basePrefix })) {
       const rel = blob.name.replace(basePrefix, "");
       const parts = rel.split("/");
       if (parts.length >= 2) datas.add(parts[0]);
     }
 
-    // para cada pasta, ler meta + arquivo real
     for (const pastaData of [...datas].sort().reverse()) {
       const prefix = `${basePrefix}${pastaData}/`;
       const arquivosDaPasta = [];
@@ -313,15 +305,12 @@ router.get("/timeline", async (req, res) => {
 
       for await (const blob of containerClient.listBlobsFlat({ prefix })) {
         const nameOnly = blob.name.replace(prefix, "");
-
         if (nameOnly.startsWith(".meta-") && nameOnly.endsWith(".json")) {
-          const dl = await containerClient
-            .getBlobClient(blob.name)
-            .downloadToBuffer();
+          const dl = await containerClient.getBlobClient(blob.name).downloadToBuffer();
           try {
             metas.push(JSON.parse(dl.toString("utf8")));
           } catch {
-            // ignora meta inválido
+            /* ignora meta inválido */
           }
         } else {
           arquivosDaPasta.push({
@@ -332,14 +321,13 @@ router.get("/timeline", async (req, res) => {
         }
       }
 
-      // casa metadados e arquivos
+      // casa metas com arquivos
       for (const meta of metas) {
         const match =
-          arquivosDaPasta.find(
-            (a) => a.nameOnly === (meta.originalName || "")
-          ) || arquivosDaPasta[0];
-
+          arquivosDaPasta.find((a) => a.nameOnly === (meta.originalName || "")) ||
+          arquivosDaPasta[0];
         if (!match) continue;
+
         const relativePath = match.fullName.replace(basePrefix, "");
         items.push({
           id: uuid(),
@@ -369,56 +357,78 @@ router.get("/timeline", async (req, res) => {
       }
     }
 
-    // DELETE /upload?email=:email&arquivo=certificados/AAAA-MM-DD/arquivo.ext
-    router.delete("/", async (req, res) => {
-      const { email, arquivo } = req.query;
-      if (!email || !arquivo) {
-        return res
-          .status(400)
-          .json({ erro: "Parâmetros obrigatórios: email e arquivo." });
-      }
-
-      // caminho físico no container
-      const blobPath = `${email}/${arquivo}`; // ex.: pedro@x/certificados/2002-02-11/Minas.pdf
-
-      try {
-        // 1) apaga o arquivo principal
-        const blobClient = containerClient.getBlockBlobClient(blobPath);
-        const deleted = await blobClient.deleteIfExists();
-        if (!deleted.succeeded) {
-          return res.status(404).json({ erro: "Arquivo não encontrado." });
-        }
-
-        // 2) remove meta-jsons da pasta (se existirem)
-        // pasta = tudo antes do último "/"
-        const lastSlash = blobPath.lastIndexOf("/");
-        if (lastSlash !== -1) {
-          const pasta = blobPath.slice(0, lastSlash + 1); // inclui a barra final
-          for await (const b of containerClient.listBlobsFlat({
-            prefix: pasta,
-          })) {
-            const nameOnly = b.name.slice(pasta.length);
-            if (nameOnly.startsWith(".meta-") && nameOnly.endsWith(".json")) {
-              await containerClient.getBlockBlobClient(b.name).deleteIfExists();
-            }
-          }
-        }
-
-        return res.json({ mensagem: "Arquivo removido." });
-      } catch (e) {
-        console.error("DELETE /upload erro:", e?.message || e);
-        // tratamento de not found do SDK (defensivo)
-        if (e?.statusCode === 404 || e?.details?.errorCode === "BlobNotFound") {
-          return res.status(404).json({ erro: "Arquivo não encontrado." });
-        }
-        return res.status(500).json({ erro: "Erro ao remover arquivo." });
-      }
-    });
-
     res.json({ items });
   } catch (e) {
     console.error("Erro em GET /upload/timeline:", e.message);
     res.status(500).json({ erro: "Erro ao montar timeline." });
+  }
+});
+
+/** PUT /upload/timeline  (atualiza status no meta da pasta) */
+router.put("/timeline", async (req, res) => {
+  try {
+    const { email, arquivo, status } = req.body || {};
+    // arquivo esperado: "certificados/YYYY-MM-DD/arquivo.ext"
+    if (!email || !arquivo || !["approved", "rejected", "pending"].includes(status)) {
+      return res.status(400).json({ erro: "Parâmetros inválidos." });
+    }
+
+    const blobPath = `${email}/${arquivo}`;
+    const lastSlash = blobPath.lastIndexOf("/");
+    if (lastSlash < 0) return res.status(400).json({ erro: "Arquivo inválido." });
+
+    const pasta = blobPath.slice(0, lastSlash + 1); // inclui "/"
+    const fileName = blobPath.slice(lastSlash + 1);
+
+    // procura meta existente
+    let metaBlobName = null;
+    for await (const b of containerClient.listBlobsFlat({ prefix: pasta })) {
+      const nameOnly = b.name.slice(pasta.length);
+      if (nameOnly.startsWith(".meta-") && nameOnly.endsWith(".json")) {
+        metaBlobName = b.name;
+        break;
+      }
+    }
+
+    const meta = {
+      uploadedAt: new Date().toISOString(),
+      dataInformada: pasta.split("/").slice(-2, -1)[0] || "",
+      corda: null,
+      originalName: fileName,
+      contentType: "",
+      size: 0,
+      status,
+    };
+
+    if (metaBlobName) {
+      // lê meta e apenas troca status (sem perder campos adicionais)
+      const buf = await containerClient.getBlobClient(metaBlobName).downloadToBuffer();
+      try {
+        const old = JSON.parse(buf.toString("utf8"));
+        old.status = status;
+        await containerClient.getBlockBlobClient(metaBlobName).uploadData(
+          Buffer.from(JSON.stringify(old)),
+          { blobHTTPHeaders: { blobContentType: "application/json" } }
+        );
+      } catch {
+        await containerClient.getBlockBlobClient(metaBlobName).uploadData(
+          Buffer.from(JSON.stringify(meta)),
+          { blobHTTPHeaders: { blobContentType: "application/json" } }
+        );
+      }
+    } else {
+      // cria novo meta
+      const newMetaName = `${pasta}.meta-${Date.now()}.json`;
+      await containerClient.getBlockBlobClient(newMetaName).uploadData(
+        Buffer.from(JSON.stringify(meta)),
+        { blobHTTPHeaders: { blobContentType: "application/json" } }
+      );
+    }
+
+    return res.json({ ok: true });
+  } catch (e) {
+    console.error("PUT /upload/timeline erro:", e?.message || e);
+    res.status(500).json({ erro: "Erro ao atualizar status." });
   }
 });
 
