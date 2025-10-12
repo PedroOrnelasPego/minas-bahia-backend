@@ -54,11 +54,6 @@ router.get("/__check/exists-cpf", async (req, res) => {
   }
 });
 
-// ...só depois disso mantenha:
-router.get("/:email", async (req, res) => {
-  /* ... */
-});
-
 /** GET /perfil/:email */
 router.get("/:email", async (req, res) => {
   try {
