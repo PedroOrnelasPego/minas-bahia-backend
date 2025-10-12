@@ -1,4 +1,6 @@
+// api/services/cosmos.js
 import { CosmosClient } from "@azure/cosmos";
+import crypto from "node:crypto";
 import dotenv from "dotenv";
 dotenv.config();
 
@@ -12,6 +14,65 @@ const database = client.database(databaseId);
 const container = database.container(containerId);
 export { container };
 
+/* ============================ CPF Utils ============================ */
+const CPF_SALT = process.env.CPF_HASH_SALT || "";
+
+/** Mantém apenas dígitos */
+export function normalizeCpf(cpf = "") {
+  return String(cpf).replace(/\D/g, "");
+}
+
+/** SHA-256(cpf + salt) -> hex */
+export function hashCpf(cpfDigits = "") {
+  return crypto
+    .createHash("sha256")
+    .update(`${cpfDigits}${CPF_SALT}`)
+    .digest("hex");
+}
+
+/**
+ * Checa existência por cpfHash (preferido) ou cpf puro.
+ * Retorna:
+ *   false        -> não existe
+ *   { email, id} -> existe (perfil encontrado)
+ */
+export async function checkCpfExists({ cpfHash, cpfDigits }) {
+  // Consulta por hash (menos exposição de PII em logs/traces)
+  if (cpfHash) {
+    const q = {
+      query:
+        "SELECT TOP 1 c.id, c.email FROM c WHERE c.cpfHash = @h OFFSET 0 LIMIT 1",
+      parameters: [{ name: "@h", value: cpfHash }],
+    };
+    const { resources = [] } = await container.items
+      .query(q, { enableCrossPartitionQuery: true })
+      .fetchAll();
+    if (resources.length > 0) {
+      const r = resources[0];
+      return { id: r.id, email: r.email || r.id };
+    }
+  }
+
+  // Fallback (se preciso) por cpf puro
+  if (cpfDigits) {
+    const q = {
+      query:
+        "SELECT TOP 1 c.id, c.email FROM c WHERE c.cpf = @c OFFSET 0 LIMIT 1",
+      parameters: [{ name: "@c", value: cpfDigits }],
+    };
+    const { resources = [] } = await container.items
+      .query(q, { enableCrossPartitionQuery: true })
+      .fetchAll();
+    if (resources.length > 0) {
+      const r = resources[0];
+      return { id: r.id, email: r.email || r.id };
+    }
+  }
+
+  return false;
+}
+
+/* ============================ Canonicidade ============================ */
 /**
  * Campos do perfil em ORDEM canônica. Use isto para garantir que
  * Microsoft e Google tenham o mesmo objeto.
@@ -26,6 +87,8 @@ const PERFIL_KEYS = [
   "nome",
   "apelido",
   "corda",
+  "cpf", // <<<<< novo
+  "cpfHash", // <<<<< novo
   "genero",
   "racaCor",
   "dataNascimento",
@@ -63,6 +126,8 @@ export function canonicalizePerfil(input = {}) {
     nome: "",
     apelido: "",
     corda: "",
+    cpf: undefined, // não preenche se não vier
+    cpfHash: undefined, // idem
     genero: "",
     racaCor: "",
     dataNascimento: "",
@@ -127,6 +192,14 @@ export async function upsertPerfil(perfilParcial) {
 export async function atualizarPerfil(email, patch) {
   if (!email) throw new Error("Email é obrigatório");
   const current = (await buscarPerfil(email)) || { id: email, email };
+
+  // Se patch tiver cpf, garanta normalização+hash aqui também
+  if (patch.cpf) {
+    const digits = normalizeCpf(patch.cpf);
+    patch.cpf = digits.length === 11 ? digits : undefined;
+    patch.cpfHash = digits.length === 11 ? hashCpf(digits) : undefined;
+  }
+
   const merged = canonicalizePerfil({ ...current, ...patch, id: email, email });
   const { resource } = await container.item(email, email).replace(merged);
   return resource;

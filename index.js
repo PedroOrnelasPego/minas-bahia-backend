@@ -1,14 +1,13 @@
-//index.js
-
+// api/index.js
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import perfilRouter from "./routes/perfil.js";
 import uploadRouter from "./routes/upload.js";
 import eventosRoutes from "./routes/eventos.js";
-import authRoutes from "./routes/authGoogle.js"; // 👈 FALTAVA
+import authRoutes from "./routes/authGoogle.js";
 
-// 👇 package.json (type: "json") ok se estiver com Node 20+
+// package.json com "type": "module"
 import pkg from "./package.json" with { type: "json" };
 const VERSION = pkg.version;
 
@@ -17,16 +16,23 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 4000;
 
-/** ===== Middlewares globais (ANTES das rotas) ===== */
-// Se NÃO usar cookie httpOnly por enquanto:
-app.use(cors({ origin: ["http://localhost:5173", "https://zealous-bay-00b08311e.6.azurestaticapps.net"] }));
+/** ===== Middlewares globais ===== */
+// Se NÃO usar cookie httpOnly:
+app.use(
+  cors({
+    origin: [
+      "http://localhost:5173",
+      "https://zealous-bay-00b08311e.6.azurestaticapps.net",
+    ],
+  })
+);
 // Se for usar cookie httpOnly, troque por:
 // app.use(cors({ origin: ["http://localhost:5173"], credentials: true }));
 
 app.use(express.json());
 
 /** ===== Rotas ===== */
-app.use("/auth", authRoutes);      // 👈 MONTE AQUI
+app.use("/auth", authRoutes);
 app.use("/perfil", perfilRouter);
 app.use("/upload", uploadRouter);
 app.use("/eventos", eventosRoutes);
