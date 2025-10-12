@@ -23,6 +23,7 @@ app.use(
     origin: [
       "http://localhost:5173",
       "https://zealous-bay-00b08311e.6.azurestaticapps.net",
+      "https://www.icmbc.com.br/"
     ],
   })
 );
