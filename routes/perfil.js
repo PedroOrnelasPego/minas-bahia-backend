@@ -24,6 +24,41 @@ router.get("/", async (_req, res) => {
   }
 });
 
+// cheque de CPF - DEVE vir antes de "/:email"
+router.get("/__check/exists-cpf", async (req, res) => {
+  try {
+    const cpfParam = String(req.query.cpf || "").trim();
+    const hashParam = String(req.query.hash || "").trim();
+
+    let cpfDigits = "";
+    let cpfHash = "";
+
+    if (cpfParam) {
+      cpfDigits = normalizeCpf(cpfParam);
+      if (cpfDigits.length !== 11) return res.json({ exists: false });
+      cpfHash = hashCpf(cpfDigits);
+    } else if (hashParam) {
+      cpfHash = hashParam;
+    } else {
+      return res.json({ exists: false });
+    }
+
+    const exists = await checkCpfExists({
+      cpfHash,
+      cpfDigits: cpfDigits || null,
+    });
+    res.json({ exists: Boolean(exists) });
+  } catch (err) {
+    console.error("GET /perfil/__check/exists-cpf", err?.message || err);
+    res.status(200).json({ exists: false });
+  }
+});
+
+// ...só depois disso mantenha:
+router.get("/:email", async (req, res) => {
+  /* ... */
+});
+
 /** GET /perfil/:email */
 router.get("/:email", async (req, res) => {
   try {
@@ -41,34 +76,6 @@ router.get("/:email", async (req, res) => {
  * (ou ?hash=sha256...)
  * Retorna { exists: true|false }
  */
-router.get("/__check/exists-cpf", async (req, res) => {
-  try {
-    const cpfParam = String(req.query.cpf || "").trim();
-    const hashParam = String(req.query.hash || "").trim();
-
-    let cpfDigits = "";
-    let cpfHash = "";
-
-    if (cpfParam) {
-      cpfDigits = normalizeCpf(cpfParam); // só dígitos
-      if (cpfDigits.length !== 11) return res.json({ exists: false });
-      cpfHash = hashCpf(cpfDigits);
-    } else if (hashParam) {
-      cpfHash = hashParam;
-    } else {
-      return res.json({ exists: false });
-    }
-
-    const exists = await checkCpfExists({
-      cpfHash,
-      cpfDigits: cpfDigits || null,
-    });
-    res.json({ exists: Boolean(exists) });
-  } catch (err) {
-    console.error("GET /perfil/__check/exists-cpf", err?.message || err);
-    res.status(200).json({ exists: false }); // falha de rede não deve travar o fluxo
-  }
-});
 
 /**
  * POST /perfil
