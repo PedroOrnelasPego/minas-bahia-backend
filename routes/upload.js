@@ -19,7 +19,14 @@ const containerClient = blobServiceClient.getContainerClient(containerName);
 
 // Pastas fixas públicas
 const BASE_FOLDER = "documentos";
-const PASTAS = ["aluno", "graduado", "monitor", "instrutor", "professor", "contramestre"];
+const PASTAS = [
+  "aluno",
+  "graduado",
+  "monitor",
+  "instrutor",
+  "professor",
+  "contramestre",
+];
 
 /* ============================================================================ */
 /* ÁREAS PÚBLICAS (download e upload por nível)                                 */
@@ -29,12 +36,16 @@ router.post("/public", upload.single("arquivo"), async (req, res) => {
   if (!PASTAS.includes(pasta))
     return res.status(400).json({ erro: "Pasta inválida." });
 
-  const blobName = `${BASE_FOLDER}/${pasta}/${Date.now()}-${req.file.originalname}`;
+  const blobName = `${BASE_FOLDER}/${pasta}/${Date.now()}-${
+    req.file.originalname
+  }`;
 
   try {
-    await containerClient.getBlockBlobClient(blobName).uploadData(req.file.buffer, {
-      blobHTTPHeaders: { blobContentType: req.file.mimetype },
-    });
+    await containerClient
+      .getBlockBlobClient(blobName)
+      .uploadData(req.file.buffer, {
+        blobHTTPHeaders: { blobContentType: req.file.mimetype },
+      });
     res.status(201).json({ mensagem: "Arquivo enviado." });
   } catch (e) {
     console.error(e);
@@ -93,14 +104,19 @@ router.post("/foto-perfil", upload.single("arquivo"), async (req, res) => {
   try {
     await containerClient.createIfNotExists();
 
-    const safeName = (name || "foto-perfil.jpg").replace(/[^a-zA-Z0-9@._-]/g, "");
+    const safeName = (name || "foto-perfil.jpg").replace(
+      /[^a-zA-Z0-9@._-]/g,
+      ""
+    );
     const blobName = `${email}/${safeName}`;
-    await containerClient.getBlockBlobClient(blobName).uploadData(arquivo.buffer, {
-      blobHTTPHeaders: {
-        blobContentType: arquivo.mimetype,
-        blobCacheControl: "public, max-age=31536000, immutable",
-      },
-    });
+    await containerClient
+      .getBlockBlobClient(blobName)
+      .uploadData(arquivo.buffer, {
+        blobHTTPHeaders: {
+          blobContentType: arquivo.mimetype,
+          blobCacheControl: "public, max-age=31536000, immutable",
+        },
+      });
 
     const url = `${process.env.AZURE_BLOB_URL}/${blobName}`;
     res.json({ mensagem: "Foto enviada com sucesso!", url });
@@ -116,13 +132,119 @@ router.delete("/foto-perfil", async (req, res) => {
 
   try {
     await Promise.all(
-      [`${email}/foto-perfil@1x.jpg`, `${email}/foto-perfil@2x.jpg`, `${email}/foto-perfil.jpg`]
-        .map((p) => containerClient.getBlockBlobClient(p).deleteIfExists())
+      [
+        `${email}/foto-perfil@1x.jpg`,
+        `${email}/foto-perfil@2x.jpg`,
+        `${email}/foto-perfil.jpg`,
+      ].map((p) => containerClient.getBlockBlobClient(p).deleteIfExists())
     );
     res.json({ mensagem: "Foto(s) deletada(s) com sucesso!" });
   } catch (e) {
     console.error(e);
     res.status(500).json({ erro: "Erro ao deletar a foto." });
+  }
+});
+
+/* ============================================================================ */
+/* LAUDOS MÉDICOS (PASTA /laudos)                                               */
+/* ============================================================================ */
+
+function safeOriginalName(name) {
+  return String(name || "arquivo")
+    .replace(/[\\/:*?"<>|]+/g, "_")
+    .trim();
+}
+
+/** POST /upload/laudos?email=...  (envia um laudo para /{email}/laudos/) */
+router.post("/laudos", upload.single("arquivo"), async (req, res) => {
+  const { email } = req.query;
+  const arquivo = req.file;
+
+  if (!email || !arquivo) {
+    return res.status(400).json({ erro: "Email e arquivo são obrigatórios." });
+  }
+
+  try {
+    await containerClient.createIfNotExists();
+
+    const original = safeOriginalName(arquivo.originalname);
+    const blobName = `${email}/laudos/${Date.now()}-${original}`;
+
+    await containerClient
+      .getBlockBlobClient(blobName)
+      .uploadData(arquivo.buffer, {
+        blobHTTPHeaders: { blobContentType: arquivo.mimetype },
+      });
+
+    const url = `${process.env.AZURE_BLOB_URL}/${blobName}`;
+    return res.json({
+      mensagem: "Laudo enviado com sucesso!",
+      caminho: blobName,
+      url,
+      nome: blobName.split("/").pop(),
+    });
+  } catch (e) {
+    console.error("Erro no upload de laudo:", e?.message || e);
+    return res.status(500).json({ erro: "Erro ao enviar laudo." });
+  }
+});
+
+/** GET /upload/laudos?email=...  (lista todos os laudos do usuário) */
+router.get("/laudos", async (req, res) => {
+  const { email } = req.query;
+  if (!email) return res.status(400).json({ erro: "Email é obrigatório." });
+
+  try {
+    const prefix = `${email}/laudos/`;
+    const arquivos = [];
+
+    for await (const blob of containerClient.listBlobsFlat({ prefix })) {
+      const url = `${process.env.AZURE_BLOB_URL}/${blob.name}`;
+      const nome = blob.name.replace(prefix, "");
+      arquivos.push({
+        nome,
+        url,
+        path: `laudos/${nome}`, // para facilitar exclusão no front
+        contentType: blob.properties.contentType || "",
+        tamanho: blob.properties.contentLength || 0,
+        atualizadoEm: blob.properties.lastModified || null,
+      });
+    }
+
+    // Ordena mais novos primeiro (pelo nome com timestamp no começo)
+    arquivos.sort((a, b) => (b.nome || "").localeCompare(a.nome || ""));
+
+    return res.json({ arquivos });
+  } catch (e) {
+    console.error("Erro ao listar laudos:", e?.message || e);
+    return res.status(500).json({ erro: "Erro ao listar laudos." });
+  }
+});
+
+/** DELETE /upload/laudos?email=...&arquivo=laudos/<nome>  (remove um laudo) */
+router.delete("/laudos", async (req, res) => {
+  const { email, arquivo } = req.query;
+  if (!email || !arquivo) {
+    return res
+      .status(400)
+      .json({ erro: "Parâmetros obrigatórios: email e arquivo." });
+  }
+
+  try {
+    const blobPath = `${email}/${arquivo}`;
+    const deleted = await containerClient
+      .getBlockBlobClient(blobPath)
+      .deleteIfExists();
+    if (!deleted.succeeded) {
+      return res.status(404).json({ erro: "Arquivo não encontrado." });
+    }
+    return res.json({ mensagem: "Laudo removido." });
+  } catch (e) {
+    console.error("DELETE /upload/laudos erro:", e?.message || e);
+    if (e?.statusCode === 404 || e?.details?.errorCode === "BlobNotFound") {
+      return res.status(404).json({ erro: "Arquivo não encontrado." });
+    }
+    return res.status(500).json({ erro: "Erro ao remover laudo." });
   }
 });
 
@@ -144,10 +266,6 @@ function toIsoDateFolder(input) {
   }
 }
 
-function safeOriginalName(name) {
-  return String(name || "arquivo").replace(/[\\/:*?"<>|]+/g, "_").trim();
-}
-
 /** POST /upload  (salva arquivo + meta pendente) */
 router.post("/", upload.single("arquivo"), async (req, res) => {
   const { email } = req.query;
@@ -165,9 +283,11 @@ router.post("/", upload.single("arquivo"), async (req, res) => {
 
     const blobName = `${email}/certificados/${pastaData}/${original}`;
 
-    await containerClient.getBlockBlobClient(blobName).uploadData(arquivo.buffer, {
-      blobHTTPHeaders: { blobContentType: arquivo.mimetype },
-    });
+    await containerClient
+      .getBlockBlobClient(blobName)
+      .uploadData(arquivo.buffer, {
+        blobHTTPHeaders: { blobContentType: arquivo.mimetype },
+      });
 
     // meta JSON
     try {
@@ -182,16 +302,22 @@ router.post("/", upload.single("arquivo"), async (req, res) => {
         status: "pending",
       };
 
-      await containerClient.getBlockBlobClient(metaName).uploadData(
-        Buffer.from(JSON.stringify(meta)),
-        { blobHTTPHeaders: { blobContentType: "application/json" } }
-      );
+      await containerClient
+        .getBlockBlobClient(metaName)
+        .uploadData(Buffer.from(JSON.stringify(meta)), {
+          blobHTTPHeaders: { blobContentType: "application/json" },
+        });
     } catch (e) {
       console.warn("Falha ao gravar meta:", e?.message || e);
     }
 
     const url = `${process.env.AZURE_BLOB_URL}/${blobName}`;
-    res.json({ mensagem: "Arquivo enviado com sucesso!", caminho: blobName, url, data: pastaData });
+    res.json({
+      mensagem: "Arquivo enviado com sucesso!",
+      caminho: blobName,
+      url,
+      data: pastaData,
+    });
   } catch (e) {
     console.error("Erro no upload:", e.message);
     res.status(500).json({ erro: "Erro ao enviar arquivo." });
@@ -226,7 +352,9 @@ router.get("/", async (req, res) => {
 router.delete("/", async (req, res) => {
   const { email, arquivo } = req.query;
   if (!email || !arquivo) {
-    return res.status(400).json({ erro: "Parâmetros obrigatórios: email e arquivo." });
+    return res
+      .status(400)
+      .json({ erro: "Parâmetros obrigatórios: email e arquivo." });
   }
 
   const blobPath = `${email}/${arquivo}`;
@@ -292,7 +420,9 @@ router.get("/timeline", async (req, res) => {
     const datas = new Set();
 
     // coleta pastas data
-    for await (const blob of containerClient.listBlobsFlat({ prefix: basePrefix })) {
+    for await (const blob of containerClient.listBlobsFlat({
+      prefix: basePrefix,
+    })) {
       const rel = blob.name.replace(basePrefix, "");
       const parts = rel.split("/");
       if (parts.length >= 2) datas.add(parts[0]);
@@ -306,7 +436,9 @@ router.get("/timeline", async (req, res) => {
       for await (const blob of containerClient.listBlobsFlat({ prefix })) {
         const nameOnly = blob.name.replace(prefix, "");
         if (nameOnly.startsWith(".meta-") && nameOnly.endsWith(".json")) {
-          const dl = await containerClient.getBlobClient(blob.name).downloadToBuffer();
+          const dl = await containerClient
+            .getBlobClient(blob.name)
+            .downloadToBuffer();
           try {
             metas.push(JSON.parse(dl.toString("utf8")));
           } catch {
@@ -324,8 +456,9 @@ router.get("/timeline", async (req, res) => {
       // casa metas com arquivos
       for (const meta of metas) {
         const match =
-          arquivosDaPasta.find((a) => a.nameOnly === (meta.originalName || "")) ||
-          arquivosDaPasta[0];
+          arquivosDaPasta.find(
+            (a) => a.nameOnly === (meta.originalName || "")
+          ) || arquivosDaPasta[0];
         if (!match) continue;
 
         const relativePath = match.fullName.replace(basePrefix, "");
@@ -369,13 +502,18 @@ router.put("/timeline", async (req, res) => {
   try {
     const { email, arquivo, status } = req.body || {};
     // arquivo esperado: "certificados/YYYY-MM-DD/arquivo.ext"
-    if (!email || !arquivo || !["approved", "rejected", "pending"].includes(status)) {
+    if (
+      !email ||
+      !arquivo ||
+      !["approved", "rejected", "pending"].includes(status)
+    ) {
       return res.status(400).json({ erro: "Parâmetros inválidos." });
     }
 
     const blobPath = `${email}/${arquivo}`;
     const lastSlash = blobPath.lastIndexOf("/");
-    if (lastSlash < 0) return res.status(400).json({ erro: "Arquivo inválido." });
+    if (lastSlash < 0)
+      return res.status(400).json({ erro: "Arquivo inválido." });
 
     const pasta = blobPath.slice(0, lastSlash + 1); // inclui "/"
     const fileName = blobPath.slice(lastSlash + 1);
@@ -402,27 +540,32 @@ router.put("/timeline", async (req, res) => {
 
     if (metaBlobName) {
       // lê meta e apenas troca status (sem perder campos adicionais)
-      const buf = await containerClient.getBlobClient(metaBlobName).downloadToBuffer();
+      const buf = await containerClient
+        .getBlobClient(metaBlobName)
+        .downloadToBuffer();
       try {
         const old = JSON.parse(buf.toString("utf8"));
         old.status = status;
-        await containerClient.getBlockBlobClient(metaBlobName).uploadData(
-          Buffer.from(JSON.stringify(old)),
-          { blobHTTPHeaders: { blobContentType: "application/json" } }
-        );
+        await containerClient
+          .getBlockBlobClient(metaBlobName)
+          .uploadData(Buffer.from(JSON.stringify(old)), {
+            blobHTTPHeaders: { blobContentType: "application/json" },
+          });
       } catch {
-        await containerClient.getBlockBlobClient(metaBlobName).uploadData(
-          Buffer.from(JSON.stringify(meta)),
-          { blobHTTPHeaders: { blobContentType: "application/json" } }
-        );
+        await containerClient
+          .getBlockBlobClient(metaBlobName)
+          .uploadData(Buffer.from(JSON.stringify(meta)), {
+            blobHTTPHeaders: { blobContentType: "application/json" },
+          });
       }
     } else {
       // cria novo meta
       const newMetaName = `${pasta}.meta-${Date.now()}.json`;
-      await containerClient.getBlockBlobClient(newMetaName).uploadData(
-        Buffer.from(JSON.stringify(meta)),
-        { blobHTTPHeaders: { blobContentType: "application/json" } }
-      );
+      await containerClient
+        .getBlockBlobClient(newMetaName)
+        .uploadData(Buffer.from(JSON.stringify(meta)), {
+          blobHTTPHeaders: { blobContentType: "application/json" },
+        });
     }
 
     return res.json({ ok: true });
