@@ -36,12 +36,12 @@ export function hashCpf(cpfDigits = "") {
  *   false        -> não existe
  *   { email, id} -> existe (perfil encontrado)
  */
+// api/services/cosmos.js
 export async function checkCpfExists({ cpfHash, cpfDigits }) {
-  // Consulta por hash (menos exposição de PII em logs/traces)
   if (cpfHash) {
     const q = {
       query:
-        "SELECT TOP 1 c.id, c.email FROM c WHERE c.cpfHash = @h OFFSET 0 LIMIT 1",
+        "SELECT c.id, c.email FROM c WHERE c.cpfHash = @h OFFSET 0 LIMIT 1",
       parameters: [{ name: "@h", value: cpfHash }],
     };
     const { resources = [] } = await container.items
@@ -53,11 +53,9 @@ export async function checkCpfExists({ cpfHash, cpfDigits }) {
     }
   }
 
-  // Fallback (se preciso) por cpf puro
   if (cpfDigits) {
     const q = {
-      query:
-        "SELECT TOP 1 c.id, c.email FROM c WHERE c.cpf = @c OFFSET 0 LIMIT 1",
+      query: "SELECT c.id, c.email FROM c WHERE c.cpf = @c OFFSET 0 LIMIT 1",
       parameters: [{ name: "@c", value: cpfDigits }],
     };
     const { resources = [] } = await container.items
