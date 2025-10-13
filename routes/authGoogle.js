@@ -1,6 +1,6 @@
 import express from "express";
 import { OAuth2Client } from "google-auth-library";
-import { buscarPerfilByEmail, upsertPerfil } from "../services/cosmos.js";
+import { buscarPerfilSmart, upsertPerfil } from "../services/cosmos.js";
 
 const router = express.Router();
 
@@ -27,32 +27,29 @@ router.post("/google", async (req, res) => {
     });
     const payload = ticket.getPayload();
 
-    const emailRaw = payload?.email;
-    const email = cleanEmail(emailRaw);
+    const email = cleanEmail(payload?.email);
     if (!email)
       return res.status(401).json({ erro: "Email não encontrado no token" });
-    if (!payload.email_verified)
+    if (!payload.email_verified) {
       return res.status(401).json({ erro: "Email do Google não verificado" });
+    }
 
-    let perfil = await buscarPerfilByEmail(email);
-    const novo = !perfil;
+    // busca inteligente (migra se houver doc legado)
+    const existente = await buscarPerfilSmart(email);
 
-    if (!perfil) {
-      perfil = await upsertPerfil({
-        primaryEmail: email,
+    if (!existente) {
+      await upsertPerfil({
+        id: email,
+        email,
         criadoVia: "google",
         nivelAcesso: "visitante",
         permissaoEventos: "leitor",
         aceitouTermos: false,
+        createdAt: new Date().toISOString(),
       });
     }
 
-    return res.status(200).json({
-      ok: true,
-      userId: perfil.id,
-      email: perfil.primaryEmail,
-      novo,
-    });
+    return res.status(200).json({ ok: true, email, novo: !existente });
   } catch (err) {
     console.error("Erro /auth/google:", err?.message || err);
     return res.status(401).json({ erro: "Token inválido ou rejeitado" });
