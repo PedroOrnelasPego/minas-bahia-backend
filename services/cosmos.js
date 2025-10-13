@@ -1,9 +1,11 @@
-// api/services/cosmos.js
 import { CosmosClient } from "@azure/cosmos";
 import crypto from "node:crypto";
 import dotenv from "dotenv";
 dotenv.config();
 
+/**
+ * ============================ Cosmos Config ============================
+ */
 const uri = process.env.COSMOSDB_URI;
 const key = process.env.COSMOSDB_KEY;
 const databaseId = "graduados";
@@ -14,15 +16,15 @@ const database = client.database(databaseId);
 const container = database.container(containerId);
 export { container };
 
-/* ============================ CPF Utils ============================ */
+/**
+ * ============================ CPF Utils ============================
+ */
 const CPF_SALT = process.env.CPF_HASH_SALT || "";
 
-/** Mantém apenas dígitos */
 export function normalizeCpf(cpf = "") {
   return String(cpf).replace(/\D/g, "");
 }
 
-/** SHA-256(cpf + salt) -> hex */
 export function hashCpf(cpfDigits = "") {
   return crypto
     .createHash("sha256")
@@ -31,62 +33,28 @@ export function hashCpf(cpfDigits = "") {
 }
 
 /**
- * Checa existência por cpfHash (preferido) ou cpf puro.
- * Retorna:
- *   false        -> não existe
- *   { email, id} -> existe (perfil encontrado)
+ * ============================ Esquema de Perfil ============================
+ * id            -> userId (UUID) [partitionKey]
+ * userId        -> redundância igual ao id
+ * primaryEmail  -> e-mail principal atual
+ * emails        -> histórico de e-mails
+ * (campo "email" é mantido por retrocompat, mas não usar no front novo)
  */
-// api/services/cosmos.js
-export async function checkCpfExists({ cpfHash, cpfDigits }) {
-  if (cpfHash) {
-    const q = {
-      query:
-        "SELECT c.id, c.email FROM c WHERE c.cpfHash = @h OFFSET 0 LIMIT 1",
-      parameters: [{ name: "@h", value: cpfHash }],
-    };
-    const { resources = [] } = await container.items
-      .query(q, { enableCrossPartitionQuery: true })
-      .fetchAll();
-    if (resources.length > 0) {
-      const r = resources[0];
-      return { id: r.id, email: r.email || r.id };
-    }
-  }
 
-  if (cpfDigits) {
-    const q = {
-      query: "SELECT c.id, c.email FROM c WHERE c.cpf = @c OFFSET 0 LIMIT 1",
-      parameters: [{ name: "@c", value: cpfDigits }],
-    };
-    const { resources = [] } = await container.items
-      .query(q, { enableCrossPartitionQuery: true })
-      .fetchAll();
-    if (resources.length > 0) {
-      const r = resources[0];
-      return { id: r.id, email: r.email || r.id };
-    }
-  }
-
-  return false;
-}
-
-/* ============================ Canonicidade ============================ */
-/**
- * Campos do perfil em ORDEM canônica. Use isto para garantir que
- * Microsoft e Google tenham o mesmo objeto.
- */
 const PERFIL_KEYS = [
   "id",
-  "email",
-  "criadoVia", // "google" | "microsoft"
+  "userId",
+  "primaryEmail",
+  "emails",
+  "criadoVia",
   "createdAt",
 
   // cadastro
   "nome",
   "apelido",
   "corda",
-  "cpf", // <<<<< novo
-  "cpfHash", // <<<<< novo
+  "cpf",
+  "cpfHash",
   "genero",
   "racaCor",
   "dataNascimento",
@@ -104,28 +72,56 @@ const PERFIL_KEYS = [
   "permissaoEventos",
   "aceitouTermos",
 
-  // ===== novos =====
+  // extras
   "cordaVerificada",
   "certificadosTimeline",
 
-  // extras opcionais
+  // retrocompat/legado
+  "email",
   "questionarios",
   "_attachments",
   "_etag",
   "_ts",
 ];
 
-/** Retorna um objeto somente com as chaves conhecidas e defaults */
+function newId() {
+  return crypto.randomUUID
+    ? crypto.randomUUID()
+    : crypto.randomBytes(16).toString("hex");
+}
+
+/** Garante canonicidade e defaults */
 export function canonicalizePerfil(input = {}) {
+  const nowIso = new Date().toISOString();
+
+  const primaryEmail =
+    (input.primaryEmail || input.email || "").toString().trim().toLowerCase() ||
+    undefined;
+
+  const userId = input.userId || input.id || newId();
+
   const defaults = {
+    id: userId,
+    userId,
+    primaryEmail,
+    emails: primaryEmail
+      ? [
+          {
+            value: primaryEmail,
+            verified: undefined,
+            provider: undefined,
+            addedAt: nowIso,
+          },
+        ]
+      : [],
     criadoVia: input.criadoVia || undefined,
-    createdAt: input.createdAt || new Date().toISOString(),
+    createdAt: input.createdAt || nowIso,
 
     nome: "",
     apelido: "",
     corda: "",
-    cpf: undefined, // não preenche se não vier
-    cpfHash: undefined, // idem
+    cpf: undefined,
+    cpfHash: undefined,
     genero: "",
     racaCor: "",
     dataNascimento: "",
@@ -144,12 +140,19 @@ export function canonicalizePerfil(input = {}) {
 
     cordaVerificada: false,
     certificadosTimeline: [],
+
+    // retrocompat
+    email: primaryEmail,
   };
 
-  const id = input.email || input.id;
-  if (!id) throw new Error("Perfil precisa ter email/id");
-
-  const src = { ...defaults, ...input, id, email: id };
+  const src = {
+    ...defaults,
+    ...input,
+    id: userId,
+    userId,
+    primaryEmail,
+    email: primaryEmail,
+  };
 
   const out = {};
   for (const k of PERFIL_KEYS) if (src[k] !== undefined) out[k] = src[k];
@@ -157,7 +160,11 @@ export function canonicalizePerfil(input = {}) {
   return out;
 }
 
-/** Lista (apenas uso administrativo) */
+/**
+ * ============================ Repositório ============================
+ */
+
+// lista administrativa
 export async function listarPerfis() {
   const { resources } = await container.items
     .query("SELECT * FROM c")
@@ -165,11 +172,11 @@ export async function listarPerfis() {
   return resources;
 }
 
-/** Busca por id/partitionKey = email. Evita query cross-partition. */
-export async function buscarPerfil(email) {
-  if (!email) return null;
+// por id (partitionKey)
+export async function buscarPerfilById(userId) {
+  if (!userId) return null;
   try {
-    const { resource } = await container.item(email, email).read();
+    const { resource } = await container.item(userId, userId).read();
     return resource || null;
   } catch (e) {
     if (e?.code === 404) return null;
@@ -177,7 +184,26 @@ export async function buscarPerfil(email) {
   }
 }
 
-/** Upsert canônico (cria se não existir, atualiza se existir) */
+// por e-mail principal
+export async function buscarPerfilByEmail(email) {
+  if (!email) return null;
+  const q = {
+    query: "SELECT TOP 1 * FROM c WHERE c.primaryEmail = @e",
+    parameters: [{ name: "@e", value: String(email).toLowerCase().trim() }],
+  };
+  const { resources = [] } = await container.items
+    .query(q, { enableCrossPartitionQuery: true })
+    .fetchAll();
+  return resources[0] || null;
+}
+
+/** resolve email OR id → perfil */
+export async function buscarPerfil(key) {
+  if (!key) return null;
+  if (String(key).includes("@")) return buscarPerfilByEmail(key);
+  return buscarPerfilById(key);
+}
+
 export async function upsertPerfil(perfilParcial) {
   const perfil = canonicalizePerfil(perfilParcial);
   const { resource } = await container.items.upsert(perfil, {
@@ -186,20 +212,90 @@ export async function upsertPerfil(perfilParcial) {
   return resource;
 }
 
-/** Atualiza por replace preservando canonicidade */
-export async function atualizarPerfil(email, patch) {
-  if (!email) throw new Error("Email é obrigatório");
-  const current = (await buscarPerfil(email)) || { id: email, email };
+export async function atualizarPerfil(userId, patch) {
+  if (!userId) throw new Error("userId é obrigatório");
+  const current = (await buscarPerfilById(userId)) || { id: userId, userId };
 
-  // Se patch tiver cpf, garanta normalização+hash aqui também
   if (patch.cpf) {
     const digits = normalizeCpf(patch.cpf);
     patch.cpf = digits.length === 11 ? digits : undefined;
     patch.cpfHash = digits.length === 11 ? hashCpf(digits) : undefined;
   }
 
-  const merged = canonicalizePerfil({ ...current, ...patch, id: email, email });
-  const { resource } = await container.item(email, email).replace(merged);
+  if (patch.primaryEmail) {
+    patch.primaryEmail = String(patch.primaryEmail).toLowerCase().trim();
+    const list = new Set([
+      ...(current.emails || []).map((e) => e.value),
+      patch.primaryEmail,
+    ]);
+    patch.emails = [...list].map((v) => ({
+      value: v,
+      addedAt: new Date().toISOString(),
+    }));
+    patch.email = patch.primaryEmail; // retrocompat
+  }
+
+  const merged = canonicalizePerfil({
+    ...current,
+    ...patch,
+    id: userId,
+    userId,
+  });
+  const { resource } = await container.item(userId, userId).replace(merged);
+  return resource;
+}
+
+/**
+ * ============================ CPF exists ============================
+ * Retorna false ou { id, email }
+ */
+export async function checkCpfExists({ cpfHash, cpfDigits }) {
+  const by = cpfHash
+    ? { field: "cpfHash", val: cpfHash }
+    : cpfDigits
+    ? { field: "cpf", val: cpfDigits }
+    : null;
+
+  if (!by) return false;
+
+  const q = {
+    query: `SELECT TOP 1 c.id, c.primaryEmail FROM c WHERE c.${by.field} = @v`,
+    parameters: [{ name: "@v", value: by.val }],
+  };
+  const { resources = [] } = await container.items
+    .query(q, { enableCrossPartitionQuery: true })
+    .fetchAll();
+
+  if (resources.length > 0) {
+    return { id: resources[0].id, email: resources[0].primaryEmail };
+  }
+  return false;
+}
+
+/**
+ * ============================ Certificados helpers ============================
+ */
+export async function appendCertificado(userId, entry) {
+  const cur = (await buscarPerfilById(userId)) || { id: userId, userId };
+  const next = canonicalizePerfil({
+    ...cur,
+    certificadosTimeline: [...(cur.certificadosTimeline || []), entry],
+  });
+  const { resource } = await container.item(userId, userId).replace(next);
+  return resource;
+}
+
+export async function updateCertificado(userId, certId, patch) {
+  const cur = await buscarPerfilById(userId);
+  if (!cur) throw new Error("Perfil não encontrado");
+
+  const list = [...(cur.certificadosTimeline || [])];
+  const idx = list.findIndex((x) => x.id === certId);
+  if (idx < 0) throw new Error("Certificado não encontrado");
+
+  list[idx] = { ...list[idx], ...patch };
+  const next = canonicalizePerfil({ ...cur, certificadosTimeline: list });
+  const { resource } = await container.item(userId, userId).replace(next);
   return resource;
 }
 
@@ -212,28 +308,4 @@ export async function testarConexao() {
     console.error("Erro ao conectar com CosmosDB:", error.message);
     return false;
   }
-}
-
-export async function appendCertificado(email, entry) {
-  const cur = (await buscarPerfil(email)) || { id: email, email };
-  const next = canonicalizePerfil({
-    ...cur,
-    certificadosTimeline: [...(cur.certificadosTimeline || []), entry],
-  });
-  const { resource } = await container.item(email, email).replace(next);
-  return resource;
-}
-
-export async function updateCertificado(email, certId, patch) {
-  const cur = await buscarPerfil(email);
-  if (!cur) throw new Error("Perfil não encontrado");
-
-  const list = [...(cur.certificadosTimeline || [])];
-  const idx = list.findIndex((x) => x.id === certId);
-  if (idx < 0) throw new Error("Certificado não encontrado");
-
-  list[idx] = { ...list[idx], ...patch };
-  const next = canonicalizePerfil({ ...cur, certificadosTimeline: list });
-  const { resource } = await container.item(email, email).replace(next);
-  return resource;
 }

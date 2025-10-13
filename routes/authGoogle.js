@@ -1,13 +1,12 @@
 import express from "express";
 import { OAuth2Client } from "google-auth-library";
-import { buscarPerfil, upsertPerfil } from "../services/cosmos.js";
+import { buscarPerfilByEmail, upsertPerfil } from "../services/cosmos.js";
 
 const router = express.Router();
 
 const { GOOGLE_CLIENT_ID } = process.env;
 const googleClient = new OAuth2Client(GOOGLE_CLIENT_ID);
 
-// util simples p/ normalizar email
 function cleanEmail(v) {
   if (!v) return null;
   const s = String(v)
@@ -30,22 +29,17 @@ router.post("/google", async (req, res) => {
 
     const emailRaw = payload?.email;
     const email = cleanEmail(emailRaw);
-
-    if (!email) {
+    if (!email)
       return res.status(401).json({ erro: "Email não encontrado no token" });
-    }
-    if (!payload.email_verified) {
+    if (!payload.email_verified)
       return res.status(401).json({ erro: "Email do Google não verificado" });
-    }
 
-    // 👉 se já existe, NÃO sobrescreva (evita apagar cadastro)
-    const existente = await buscarPerfil(email);
+    let perfil = await buscarPerfilByEmail(email);
+    const novo = !perfil;
 
-    if (!existente) {
-      // cria casca padrão só na primeira vez
-      await upsertPerfil({
-        id: email,
-        email,
+    if (!perfil) {
+      perfil = await upsertPerfil({
+        primaryEmail: email,
         criadoVia: "google",
         nivelAcesso: "visitante",
         permissaoEventos: "leitor",
@@ -53,7 +47,12 @@ router.post("/google", async (req, res) => {
       });
     }
 
-    return res.status(200).json({ ok: true, email, novo: !existente });
+    return res.status(200).json({
+      ok: true,
+      userId: perfil.id,
+      email: perfil.primaryEmail,
+      novo,
+    });
   } catch (err) {
     console.error("Erro /auth/google:", err?.message || err);
     return res.status(401).json({ erro: "Token inválido ou rejeitado" });

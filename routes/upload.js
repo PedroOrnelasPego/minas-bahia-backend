@@ -1,4 +1,3 @@
-// api/routes/upload.js
 import express from "express";
 import multer from "multer";
 import {
@@ -7,6 +6,7 @@ import {
 } from "@azure/storage-blob";
 import dotenv from "dotenv";
 import { v4 as uuid } from "uuid";
+import { buscarPerfil } from "../services/cosmos.js";
 
 dotenv.config();
 
@@ -57,19 +57,6 @@ const PUBLIC_BASE =
     : "");
 
 /* ============================================================================
-   PASTAS FIXAS PÚBLICAS
-   ========================================================================== */
-const BASE_FOLDER = "documentos";
-const PASTAS = [
-  "aluno",
-  "graduado",
-  "monitor",
-  "instrutor",
-  "professor",
-  "contramestre",
-];
-
-/* ============================================================================
    Helpers
    ========================================================================== */
 function toIsoDateFolder(input) {
@@ -93,16 +80,37 @@ function safeOriginalName(name) {
 }
 
 function publicUrlFor(blobName) {
-  // Se PUBLIC_BASE estiver vazio, ainda devolvemos um path relativo
-  // (mas o ideal é setar AZURE_BLOB_URL ou usar account para ter o host completo)
   return PUBLIC_BASE
     ? `${PUBLIC_BASE}/${blobName}`
     : `/${containerName}/${blobName}`;
 }
 
-/* ============================================================================ */
-/* ÁREAS PÚBLICAS (download e upload por nível)                                 */
-/* ============================================================================ */
+/** Resolve userId a partir de ?id= ou ?email= (retrocompat) */
+async function resolveUserIdFromQuery(req) {
+  const rawId = String(req.query.id || "").trim();
+  const rawEmail = String(req.query.email || "").trim();
+  const key = rawId || rawEmail;
+  if (!key) return null;
+  const perfil = await buscarPerfil(key);
+  return perfil?.id || null;
+}
+
+/* ============================================================================
+   PASTAS FIXAS PÚBLICAS
+   ========================================================================== */
+const BASE_FOLDER = "documentos";
+const PASTAS = [
+  "aluno",
+  "graduado",
+  "monitor",
+  "instrutor",
+  "professor",
+  "contramestre",
+];
+
+/* ============================================================================
+   ÁREAS PÚBLICAS (download e upload por nível)
+   ========================================================================== */
 router.post("/public", upload.single("arquivo"), async (req, res) => {
   const { pasta } = req.query;
   if (!PASTAS.includes(pasta))
@@ -164,24 +172,27 @@ router.delete("/public", async (req, res) => {
   }
 });
 
-/* ============================================================================ */
-/* FOTO DE PERFIL                                                               */
-/* ============================================================================ */
+/* ============================================================================
+   FOTO DE PERFIL  (usa userId)
+   ========================================================================== */
 router.post("/foto-perfil", upload.single("arquivo"), async (req, res) => {
-  const { email, name } = req.query;
+  const userId = await resolveUserIdFromQuery(req);
   const arquivo = req.file;
 
-  if (!email || !arquivo)
-    return res.status(400).json({ erro: "Email e arquivo são obrigatórios." });
+  if (!userId || !arquivo)
+    return res
+      .status(400)
+      .json({ erro: "Parâmetros obrigatórios: id e arquivo." });
 
   try {
     await containerClient.createIfNotExists();
 
-    const safeName = (name || "foto-perfil.jpg").replace(
+    const name = String(req.query.name || "foto-perfil.jpg").replace(
       /[^a-zA-Z0-9@._-]/g,
       ""
     );
-    const blobName = `${email}/${safeName}`;
+    const blobName = `${userId}/${name}`;
+
     await containerClient
       .getBlockBlobClient(blobName)
       .uploadData(arquivo.buffer, {
@@ -200,15 +211,16 @@ router.post("/foto-perfil", upload.single("arquivo"), async (req, res) => {
 });
 
 router.delete("/foto-perfil", async (req, res) => {
-  const { email } = req.query;
-  if (!email) return res.status(400).json({ erro: "Email é obrigatório." });
+  const userId = await resolveUserIdFromQuery(req);
+  if (!userId)
+    return res.status(400).json({ erro: "Parâmetro obrigatório: id." });
 
   try {
     await Promise.all(
       [
-        `${email}/foto-perfil@1x.jpg`,
-        `${email}/foto-perfil@2x.jpg`,
-        `${email}/foto-perfil.jpg`,
+        `${userId}/foto-perfil@1x.jpg`,
+        `${userId}/foto-perfil@2x.jpg`,
+        `${userId}/foto-perfil.jpg`,
       ].map((p) => containerClient.getBlockBlobClient(p).deleteIfExists())
     );
     res.json({ mensagem: "Foto(s) deletada(s) com sucesso!" });
@@ -218,16 +230,18 @@ router.delete("/foto-perfil", async (req, res) => {
   }
 });
 
-/* ============================================================================ */
-/* CERTIFICADOS (PASTA POR DATA + META JSON)                                    */
-/* ============================================================================ */
+/* ============================================================================
+   CERTIFICADOS (PASTA POR DATA + META JSON) — usa userId
+   ========================================================================== */
 router.post("/", upload.single("arquivo"), async (req, res) => {
-  const { email } = req.query;
+  const userId = await resolveUserIdFromQuery(req);
   const { data: dataInformada, corda } = req.body || {};
   const arquivo = req.file;
 
-  if (!email || !arquivo)
-    return res.status(400).json({ erro: "Email e arquivo são obrigatórios." });
+  if (!userId || !arquivo)
+    return res
+      .status(400)
+      .json({ erro: "Parâmetros obrigatórios: id e arquivo." });
 
   try {
     await containerClient.createIfNotExists();
@@ -235,7 +249,7 @@ router.post("/", upload.single("arquivo"), async (req, res) => {
     const pastaData = toIsoDateFolder(dataInformada);
     const original = safeOriginalName(arquivo.originalname);
 
-    const blobName = `${email}/certificados/${pastaData}/${original}`;
+    const blobName = `${userId}/certificados/${pastaData}/${original}`;
 
     await containerClient
       .getBlockBlobClient(blobName)
@@ -245,7 +259,7 @@ router.post("/", upload.single("arquivo"), async (req, res) => {
 
     // meta JSON
     try {
-      const metaName = `${email}/certificados/${pastaData}/.meta-${Date.now()}.json`;
+      const metaName = `${userId}/certificados/${pastaData}/.meta-${Date.now()}.json`;
       const meta = {
         uploadedAt: new Date().toISOString(),
         dataInformada: pastaData,
@@ -279,11 +293,12 @@ router.post("/", upload.single("arquivo"), async (req, res) => {
 });
 
 router.get("/", async (req, res) => {
-  const { email } = req.query;
-  if (!email) return res.status(400).json({ erro: "Email é obrigatório." });
+  const userId = await resolveUserIdFromQuery(req);
+  if (!userId)
+    return res.status(400).json({ erro: "Parâmetro obrigatório: id." });
 
   try {
-    const prefix = `${email}/certificados/`;
+    const prefix = `${userId}/certificados/`;
     const arquivos = [];
 
     for await (const blob of containerClient.listBlobsFlat({ prefix })) {
@@ -302,24 +317,24 @@ router.get("/", async (req, res) => {
 });
 
 router.delete("/", async (req, res) => {
-  const { email, arquivo } = req.query;
-  if (!email || !arquivo) {
+  const userId = await resolveUserIdFromQuery(req);
+  const arquivo = String(req.query.arquivo || "");
+
+  if (!userId || !arquivo) {
     return res
       .status(400)
-      .json({ erro: "Parâmetros obrigatórios: email e arquivo." });
+      .json({ erro: "Parâmetros obrigatórios: id e arquivo." });
   }
 
-  const blobPath = `${email}/${arquivo}`;
+  const blobPath = `${userId}/${arquivo}`;
 
   try {
-    // 1) apaga o arquivo principal
     const blobClient = containerClient.getBlockBlobClient(blobPath);
     const deleted = await blobClient.deleteIfExists();
     if (!deleted.succeeded) {
       return res.status(404).json({ erro: "Arquivo não encontrado." });
     }
 
-    // 2) remove meta-jsons da pasta (se existirem)
     const lastSlash = blobPath.lastIndexOf("/");
     if (lastSlash !== -1) {
       const pasta = blobPath.slice(0, lastSlash + 1);
@@ -341,12 +356,15 @@ router.delete("/", async (req, res) => {
   }
 });
 
-/* Proxy direto para certificados (legado/visualização) */
-router.get("/certificados/:email/:arquivo", async (req, res) => {
-  const { email, arquivo } = req.params;
+/* Proxy direto para certificados (legado/visualização) — aceita :id ou :email */
+router.get("/certificados/:idOrEmail/:arquivo", async (req, res) => {
+  const { idOrEmail, arquivo } = req.params;
 
   try {
-    const blobPath = `${email}/certificados/${arquivo}`;
+    const perfil = await buscarPerfil(idOrEmail);
+    if (!perfil) return res.status(404).send("Usuário não encontrado.");
+
+    const blobPath = `${perfil.id}/certificados/${arquivo}`;
     const blobClient = containerClient.getBlobClient(blobPath);
 
     if (!(await blobClient.exists()))
@@ -363,11 +381,12 @@ router.get("/certificados/:email/:arquivo", async (req, res) => {
 
 /* Monta timeline lendo metas */
 router.get("/timeline", async (req, res) => {
-  const { email } = req.query;
-  if (!email) return res.status(400).json({ erro: "Email é obrigatório." });
+  const userId = await resolveUserIdFromQuery(req);
+  if (!userId)
+    return res.status(400).json({ erro: "Parâmetro obrigatório: id." });
 
   try {
-    const basePrefix = `${email}/certificados/`;
+    const basePrefix = `${userId}/certificados/`;
     const items = [];
     const datas = new Set();
 
@@ -448,16 +467,21 @@ router.get("/timeline", async (req, res) => {
 
 router.put("/timeline", async (req, res) => {
   try {
-    const { email, arquivo, status } = req.body || {};
+    const userId = await resolveUserIdFromQuery({
+      query: { id: req.body?.id, email: req.body?.email },
+    });
+    const arquivo = req.body?.arquivo;
+    const status = req.body?.status;
+
     if (
-      !email ||
+      !userId ||
       !arquivo ||
       !["approved", "rejected", "pending"].includes(status)
     ) {
       return res.status(400).json({ erro: "Parâmetros inválidos." });
     }
 
-    const blobPath = `${email}/${arquivo}`;
+    const blobPath = `${userId}/${arquivo}`;
     const lastSlash = blobPath.lastIndexOf("/");
     if (lastSlash < 0)
       return res.status(400).json({ erro: "Arquivo inválido." });
@@ -519,19 +543,21 @@ router.put("/timeline", async (req, res) => {
   }
 });
 
-/* ============================================================================ */
-/* LAUDOS (upload/list/delete em /<email>/laudos/)                               */
-/* ============================================================================ */
+/* ============================================================================
+   LAUDOS  — usa userId
+   ========================================================================== */
 router.post("/laudos", upload.single("arquivo"), async (req, res) => {
-  const { email } = req.query;
+  const userId = await resolveUserIdFromQuery(req);
   const arquivo = req.file;
-  if (!email || !arquivo) {
-    return res.status(400).json({ erro: "Email e arquivo são obrigatórios." });
+  if (!userId || !arquivo) {
+    return res
+      .status(400)
+      .json({ erro: "Parâmetros obrigatórios: id e arquivo." });
   }
 
   try {
     await containerClient.createIfNotExists();
-    const blobName = `${email}/laudos/${Date.now()}-${safeOriginalName(
+    const blobName = `${userId}/laudos/${Date.now()}-${safeOriginalName(
       arquivo.originalname
     )}`;
     await containerClient
@@ -549,11 +575,12 @@ router.post("/laudos", upload.single("arquivo"), async (req, res) => {
 });
 
 router.get("/laudos", async (req, res) => {
-  const { email } = req.query;
-  if (!email) return res.status(400).json({ erro: "Email é obrigatório." });
+  const userId = await resolveUserIdFromQuery(req);
+  if (!userId)
+    return res.status(400).json({ erro: "Parâmetro obrigatório: id." });
 
   try {
-    const prefix = `${email}/laudos/`;
+    const prefix = `${userId}/laudos/`;
     const arquivos = [];
     for await (const blob of containerClient.listBlobsFlat({ prefix })) {
       arquivos.push({
@@ -570,18 +597,18 @@ router.get("/laudos", async (req, res) => {
 });
 
 router.delete("/laudos", async (req, res) => {
-  const { email, arquivo } = req.query;
-  if (!email || !arquivo) {
+  const userId = await resolveUserIdFromQuery(req);
+  const arquivo = String(req.query.arquivo || "");
+  if (!userId || !arquivo) {
     return res
       .status(400)
-      .json({ erro: "Parâmetros obrigatórios: email e arquivo." });
+      .json({ erro: "Parâmetros obrigatórios: id e arquivo." });
   }
 
   try {
-    // Aceita tanto "xxx.ext" quanto "laudos/xxx.ext"
     const blobPath = arquivo.startsWith("laudos/")
-      ? `${email}/${arquivo}`
-      : `${email}/laudos/${arquivo}`;
+      ? `${userId}/${arquivo}`
+      : `${userId}/laudos/${arquivo}`;
 
     const deleted = await containerClient
       .getBlockBlobClient(blobPath)

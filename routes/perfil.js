@@ -1,19 +1,20 @@
-// api/routes/perfil.js
 import express from "express";
 import {
   buscarPerfil,
+  buscarPerfilByEmail,
+  buscarPerfilById,
   listarPerfis,
   upsertPerfil,
   atualizarPerfil,
   checkCpfExists,
   normalizeCpf,
   hashCpf,
+  updateCertificado,
 } from "../services/cosmos.js";
-import { updateCertificado } from "../services/cosmos.js";
 
 const router = express.Router();
 
-/** GET /perfil */
+/** GET /perfil (admin) */
 router.get("/", async (_req, res) => {
   try {
     const perfis = await listarPerfis();
@@ -24,7 +25,7 @@ router.get("/", async (_req, res) => {
   }
 });
 
-// cheque de CPF - DEVE vir antes de "/:email"
+/** Checagem de CPF — precisa vir antes das rotas com :id */
 router.get("/__check/exists-cpf", async (req, res) => {
   try {
     const cpfParam = String(req.query.cpf || "").trim();
@@ -54,10 +55,14 @@ router.get("/__check/exists-cpf", async (req, res) => {
   }
 });
 
-/** GET /perfil/:email */
-router.get("/:email", async (req, res) => {
+/** GET /perfil/:idOrEmail (aceita UUID ou e-mail) */
+router.get("/:idOrEmail", async (req, res) => {
   try {
-    const perfil = await buscarPerfil(req.params.email);
+    const key = req.params.idOrEmail;
+    const perfil = key.includes("@")
+      ? await buscarPerfilByEmail(key)
+      : await buscarPerfilById(key);
+
     if (!perfil) return res.status(404).json({ erro: "Perfil não encontrado" });
     res.json(perfil);
   } catch (err) {
@@ -67,23 +72,15 @@ router.get("/:email", async (req, res) => {
 });
 
 /**
- * GET /perfil/exists-cpf?cpf=00000000000
- * (ou ?hash=sha256...)
- * Retorna { exists: true|false }
- */
-
-/**
  * POST /perfil
  * - UPSERT com verificação de CPF (se vier no body)
- * 201 se criou, 200 se upsert (já existia)
+ * - Aceita primaryEmail e/ou id (userId)
+ * 201 se criou, 200 se atualizou
  */
 router.post("/", async (req, res) => {
   try {
     const body = req.body || {};
-    const email = body.email || body.id;
-    if (!email) return res.status(400).json({ erro: "Email é obrigatório" });
 
-    // CPF (opcional) — se vier, normaliza, gera hash e verifica duplicidade
     if (body.cpf) {
       const cpfDigits = normalizeCpf(body.cpf);
       if (cpfDigits.length !== 11) {
@@ -92,18 +89,19 @@ router.post("/", async (req, res) => {
       const cpfHash = hashCpf(cpfDigits);
 
       const exists = await checkCpfExists({ cpfHash, cpfDigits });
-      if (exists) {
-        // Se já existe um perfil com esse CPF e NÃO é este email, bloqueia
-        if (exists.email && exists.email !== email) {
-          return res.status(409).json({ erro: "CPF já cadastrado" });
-        }
+      if (exists && exists.id !== body.id) {
+        return res.status(409).json({ erro: "CPF já cadastrado" });
       }
 
       body.cpf = cpfDigits;
       body.cpfHash = cpfHash;
     }
 
-    const existed = !!(await buscarPerfil(email));
+    let existed = false;
+    if (body.id) existed = !!(await buscarPerfilById(body.id));
+    else if (body.primaryEmail || body.email)
+      existed = !!(await buscarPerfilByEmail(body.primaryEmail || body.email));
+
     const salvo = await upsertPerfil(body);
     res.status(existed ? 200 : 201).json(salvo);
   } catch (err) {
@@ -112,13 +110,12 @@ router.post("/", async (req, res) => {
   }
 });
 
-/** PUT /perfil/:email (merge + canonicidade) */
-router.put("/:email", async (req, res) => {
+/** PUT /perfil/:userId (merge + canonicidade) */
+router.put("/:userId", async (req, res) => {
   try {
-    const { email } = req.params;
+    const { userId } = req.params;
     const updates = { ...(req.body || {}) };
 
-    // Se for atualizar/incluir CPF, verifica duplicidade
     if (updates.cpf) {
       const cpfDigits = normalizeCpf(updates.cpf);
       if (cpfDigits.length !== 11) {
@@ -127,7 +124,7 @@ router.put("/:email", async (req, res) => {
       const cpfHash = hashCpf(cpfDigits);
 
       const exists = await checkCpfExists({ cpfHash, cpfDigits });
-      if (exists && exists.email !== email) {
+      if (exists && exists.id !== userId) {
         return res.status(409).json({ erro: "CPF já cadastrado" });
       }
 
@@ -135,7 +132,7 @@ router.put("/:email", async (req, res) => {
       updates.cpfHash = cpfHash;
     }
 
-    const salvo = await atualizarPerfil(email, updates);
+    const salvo = await atualizarPerfil(userId, updates);
     res.json(salvo);
   } catch (err) {
     console.error("PUT /perfil erro:", err?.message || err);
@@ -143,31 +140,28 @@ router.put("/:email", async (req, res) => {
   }
 });
 
-// timeline do usuário (ou já vem embutida no GET /perfil/:email)
-router.get("/:email/certificados", async (req, res) => {
+/** GET /perfil/:userId/certificados (timeline) */
+router.get("/:userId/certificados", async (req, res) => {
   try {
-    const perfil = await buscarPerfil(req.params.email);
-    if (!perfil) return res.status(404).json({ erro: "Perfil não encontrado" });
-    res.json(perfil.certificadosTimeline || []);
+    const p = await buscarPerfilById(req.params.userId);
+    if (!p) return res.status(404).json({ erro: "Perfil não encontrado" });
+    res.json(p.certificadosTimeline || []);
   } catch (e) {
     res.status(500).json({ erro: "Erro ao buscar timeline." });
   }
 });
 
-// aprovar/reprovar um certificado (Painel Admin)
-router.put("/:email/certificados/:id", async (req, res) => {
+/** PUT /perfil/:userId/certificados/:id (aprovar/reprovar) */
+router.put("/:userId/certificados/:id", async (req, res) => {
   try {
-    const { email, id } = req.params;
-    const { status, observacao, atualizarCorda } = req.body || {}; // status = "approved" | "rejected"
+    const { userId, id } = req.params;
+    const { status, observacao, atualizarCorda } = req.body || {};
 
     if (!["approved", "rejected"].includes(status)) {
       return res.status(400).json({ erro: "status inválido" });
     }
 
-    const perfil = await buscarPerfil(email);
-    if (!perfil) return res.status(404).json({ erro: "Perfil não encontrado" });
-
-    const atualizado = await updateCertificado(email, id, {
+    const atualizado = await updateCertificado(userId, id, {
       status,
       revisao: {
         por: "contato@capoeiraminasbahia.com.br",
@@ -176,13 +170,12 @@ router.put("/:email/certificados/:id", async (req, res) => {
       },
     });
 
-    // se aprovado e quiser refletir no perfil
     if (status === "approved" && atualizarCorda === true) {
       const cert = (atualizado.certificadosTimeline || []).find(
         (c) => c.id === id
       );
       if (cert) {
-        await atualizarPerfil(email, {
+        await atualizarPerfil(userId, {
           corda: cert.corda,
           cordaVerificada: true,
         });
@@ -191,12 +184,12 @@ router.put("/:email/certificados/:id", async (req, res) => {
 
     res.json({ ok: true });
   } catch (e) {
-    console.error("PUT /perfil/:email/certificados/:id", e.message);
+    console.error("PUT /perfil/:userId/certificados/:id", e.message);
     res.status(500).json({ erro: "Erro ao atualizar certificado." });
   }
 });
 
-// lista global de pendentes (para a página Admin)
+/** GET /perfil/__admin/pendentes (admin) */
 router.get("/__admin/pendentes", async (_req, res) => {
   try {
     const todos = await listarPerfis();
@@ -205,7 +198,8 @@ router.get("/__admin/pendentes", async (_req, res) => {
       for (const c of p.certificadosTimeline || []) {
         if (c.status === "pending") {
           pendentes.push({
-            email: p.email,
+            userId: p.id,
+            email: p.primaryEmail,
             nome: p.nome,
             ...c,
           });
