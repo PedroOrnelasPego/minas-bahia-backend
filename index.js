@@ -1,4 +1,3 @@
-// api/index.js
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
@@ -6,9 +5,8 @@ import perfilRouter from "./routes/perfil.js";
 import uploadRouter from "./routes/upload.js";
 import eventosRoutes from "./routes/eventos.js";
 import authRoutes from "./routes/authGoogle.js";
-
-// package.json com "type": "module"
 import pkg from "./package.json" with { type: "json" };
+
 const VERSION = pkg.version;
 
 dotenv.config();
@@ -17,7 +15,6 @@ const app = express();
 const PORT = process.env.PORT || 4000;
 
 /** ===== Middlewares globais ===== */
-// Se NÃO usar cookie httpOnly:
 app.use(
   cors({
     origin: [
@@ -28,9 +25,6 @@ app.use(
     ],
   })
 );
-// Se for usar cookie httpOnly, troque por:
-// app.use(cors({ origin: ["http://localhost:5173"], credentials: true }));
-
 app.use(express.json());
 
 /** ===== Rotas ===== */
@@ -39,10 +33,8 @@ app.use("/perfil", perfilRouter);
 app.use("/upload", uploadRouter);
 app.use("/eventos", eventosRoutes);
 
-// Rota raiz
 app.get("/", (_req, res) => res.send(`Backend está rodando! 🚀 v${VERSION}`));
 
-// Health
 app.get("/health", async (_req, res) => {
   try {
     res.status(200).send(`Conexão OK com CosmosDB 🎉 v${VERSION}`);
@@ -51,7 +43,6 @@ app.get("/health", async (_req, res) => {
   }
 });
 
-/** ===== Inicialização ===== */
 app.listen(PORT, () => {
   console.log(`✅ Servidor v${VERSION} rodando na porta ${PORT}`);
 });

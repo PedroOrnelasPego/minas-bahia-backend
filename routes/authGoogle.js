@@ -1,13 +1,12 @@
 import express from "express";
 import { OAuth2Client } from "google-auth-library";
-import { buscarPerfil, upsertPerfil } from "../services/cosmos.js";
+import { buscarPerfilSmart, upsertPerfil } from "../services/cosmos.js";
 
 const router = express.Router();
 
 const { GOOGLE_CLIENT_ID } = process.env;
 const googleClient = new OAuth2Client(GOOGLE_CLIENT_ID);
 
-// util simples p/ normalizar email
 function cleanEmail(v) {
   if (!v) return null;
   const s = String(v)
@@ -28,21 +27,17 @@ router.post("/google", async (req, res) => {
     });
     const payload = ticket.getPayload();
 
-    const emailRaw = payload?.email;
-    const email = cleanEmail(emailRaw);
-
-    if (!email) {
+    const email = cleanEmail(payload?.email);
+    if (!email)
       return res.status(401).json({ erro: "Email não encontrado no token" });
-    }
     if (!payload.email_verified) {
       return res.status(401).json({ erro: "Email do Google não verificado" });
     }
 
-    // 👉 se já existe, NÃO sobrescreva (evita apagar cadastro)
-    const existente = await buscarPerfil(email);
+    // busca inteligente (migra se houver doc legado)
+    const existente = await buscarPerfilSmart(email);
 
     if (!existente) {
-      // cria casca padrão só na primeira vez
       await upsertPerfil({
         id: email,
         email,
@@ -50,6 +45,7 @@ router.post("/google", async (req, res) => {
         nivelAcesso: "visitante",
         permissaoEventos: "leitor",
         aceitouTermos: false,
+        createdAt: new Date().toISOString(),
       });
     }
 
