@@ -10,11 +10,16 @@ import {
   hashCpf,
 } from "../services/cosmos.js";
 import { updateCertificado } from "../services/cosmos.js";
+import {
+  requireAdmin,
+  requireAuth,
+  requireSelfOrAdmin,
+} from "../middlewares/auth.js";
 
 const router = express.Router();
 
 /** GET /perfil */
-router.get("/", async (_req, res) => {
+router.get("/", requireAuth, requireAdmin, async (_req, res) => {
   try {
     const perfis = await listarPerfis();
     res.status(200).json(perfis);
@@ -55,16 +60,23 @@ router.get("/__check/exists-cpf", async (req, res) => {
 });
 
 /** GET /perfil/:email */
-router.get("/:email", async (req, res) => {
-  try {
-    const perfil = await buscarPerfil(req.params.email);
-    if (!perfil) return res.status(404).json({ erro: "Perfil não encontrado" });
-    res.json(perfil);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ erro: "Erro ao buscar perfil." });
+router.get(
+  "/:email",
+  requireAuth,
+  requireSelfOrAdmin("email"),
+  async (req, res) => {
+    try {
+      const perfil = await buscarPerfil(req.params.email);
+      if (!perfil)
+        return res.status(404).json({ erro: "Perfil não encontrado" });
+      const { cpf, cpfHash, ...safe } = perfil;
+      return res.json(safe);
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ erro: "Erro ao buscar perfil." });
+    }
   }
-});
+);
 
 /**
  * GET /perfil/exists-cpf?cpf=00000000000
@@ -77,11 +89,20 @@ router.get("/:email", async (req, res) => {
  * - UPSERT com verificação de CPF (se vier no body)
  * 201 se criou, 200 se upsert (já existia)
  */
-router.post("/", async (req, res) => {
+router.post("/", requireAuth, async (req, res) => {
   try {
     const body = req.body || {};
     const email = body.email || body.id;
     if (!email) return res.status(400).json({ erro: "Email é obrigatório" });
+
+    const isAdmin =
+      Array.isArray(req.user?.roles) && req.user.roles.includes("admin");
+    if (
+      !isAdmin &&
+      (req.user?.email || "").toLowerCase() !== String(email).toLowerCase()
+    ) {
+      return res.status(403).json({ erro: "Forbidden" });
+    }
 
     // CPF (opcional) — se vier, normaliza, gera hash e verifica duplicidade
     if (body.cpf) {
@@ -113,35 +134,40 @@ router.post("/", async (req, res) => {
 });
 
 /** PUT /perfil/:email (merge + canonicidade) */
-router.put("/:email", async (req, res) => {
-  try {
-    const { email } = req.params;
-    const updates = { ...(req.body || {}) };
+router.put(
+  "/:email",
+  requireAuth,
+  requireSelfOrAdmin("email"),
+  async (req, res) => {
+    try {
+      const { email } = req.params;
+      const updates = { ...(req.body || {}) };
 
-    // Se for atualizar/incluir CPF, verifica duplicidade
-    if (updates.cpf) {
-      const cpfDigits = normalizeCpf(updates.cpf);
-      if (cpfDigits.length !== 11) {
-        return res.status(400).json({ erro: "CPF inválido" });
+      // Se for atualizar/incluir CPF, verifica duplicidade
+      if (updates.cpf) {
+        const cpfDigits = normalizeCpf(updates.cpf);
+        if (cpfDigits.length !== 11) {
+          return res.status(400).json({ erro: "CPF inválido" });
+        }
+        const cpfHash = hashCpf(cpfDigits);
+
+        const exists = await checkCpfExists({ cpfHash, cpfDigits });
+        if (exists && exists.email !== email) {
+          return res.status(409).json({ erro: "CPF já cadastrado" });
+        }
+
+        updates.cpf = cpfDigits;
+        updates.cpfHash = cpfHash;
       }
-      const cpfHash = hashCpf(cpfDigits);
 
-      const exists = await checkCpfExists({ cpfHash, cpfDigits });
-      if (exists && exists.email !== email) {
-        return res.status(409).json({ erro: "CPF já cadastrado" });
-      }
-
-      updates.cpf = cpfDigits;
-      updates.cpfHash = cpfHash;
+      const salvo = await atualizarPerfil(email, updates);
+      res.json(salvo);
+    } catch (err) {
+      console.error("PUT /perfil erro:", err?.message || err);
+      res.status(500).json({ erro: "Erro ao atualizar perfil." });
     }
-
-    const salvo = await atualizarPerfil(email, updates);
-    res.json(salvo);
-  } catch (err) {
-    console.error("PUT /perfil erro:", err?.message || err);
-    res.status(500).json({ erro: "Erro ao atualizar perfil." });
   }
-});
+);
 
 // timeline do usuário (ou já vem embutida no GET /perfil/:email)
 router.get("/:email/certificados", async (req, res) => {
@@ -197,25 +223,30 @@ router.put("/:email/certificados/:id", async (req, res) => {
 });
 
 // lista global de pendentes (para a página Admin)
-router.get("/__admin/pendentes", async (_req, res) => {
-  try {
-    const todos = await listarPerfis();
-    const pendentes = [];
-    for (const p of todos) {
-      for (const c of p.certificadosTimeline || []) {
-        if (c.status === "pending") {
-          pendentes.push({
-            email: p.email,
-            nome: p.nome,
-            ...c,
-          });
+router.get(
+  "/__admin/pendentes",
+  requireAuth,
+  requireAdmin,
+  async (_req, res) => {
+    try {
+      const todos = await listarPerfis();
+      const pendentes = [];
+      for (const p of todos) {
+        for (const c of p.certificadosTimeline || []) {
+          if (c.status === "pending") {
+            pendentes.push({
+              email: p.email,
+              nome: p.nome,
+              ...c,
+            });
+          }
         }
       }
+      res.json(pendentes);
+    } catch (e) {
+      res.status(500).json({ erro: "Erro ao listar pendentes." });
     }
-    res.json(pendentes);
-  } catch (e) {
-    res.status(500).json({ erro: "Erro ao listar pendentes." });
   }
-});
+);
 
 export default router;

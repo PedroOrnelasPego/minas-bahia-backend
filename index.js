@@ -6,6 +6,8 @@ import perfilRouter from "./routes/perfil.js";
 import uploadRouter from "./routes/upload.js";
 import eventosRoutes from "./routes/eventos.js";
 import authRoutes from "./routes/authGoogle.js";
+import authAppRoutes from "./routes/authApp.js";
+
 
 // package.json com "type": "module"
 import pkg from "./package.json" with { type: "json" };
@@ -16,24 +18,25 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 4000;
 
-/** ===== Middlewares globais ===== */
-// Se NÃO usar cookie httpOnly:
-app.use(
-  cors({
-    origin: [
-      "http://localhost:5173",
-      "https://zealous-bay-00b08311e.6.azurestaticapps.net",
-      "https://www.icmbc.com.br",
-      "https://icmbc.com.br",
-    ],
-  })
-);
+ app.use(express.json());
+ app.use(
+   cors({
+     origin: [
+       "http://localhost:5173",
+       "https://zealous-bay-00b08311e.6.azurestaticapps.net",
+       "https://www.icmbc.com.br",
+       "https://icmbc.com.br",
+     ],
+     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+     allowedHeaders: ["Content-Type", "Authorization"],
+   })
+ );
 // Se for usar cookie httpOnly, troque por:
 // app.use(cors({ origin: ["http://localhost:5173"], credentials: true }));
 
-app.use(express.json());
 
 /** ===== Rotas ===== */
+app.use("/auth", authAppRoutes);
 app.use("/auth", authRoutes);
 app.use("/perfil", perfilRouter);
 app.use("/upload", uploadRouter);
