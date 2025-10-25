@@ -237,3 +237,83 @@ export async function updateCertificado(email, certId, patch) {
   const { resource } = await container.item(email, email).replace(next);
   return resource;
 }
+
+/* ============================ Suporte por CÓDIGO (5 dígitos) ============================ */
+
+/** Gera um código público de 5 dígitos (10000–99999) */
+export function gerarCodigo5() {
+  return String(Math.floor(10000 + Math.random() * 90000));
+}
+
+/** Gera um código único verificando se já não existe em nenhum documento */
+export async function gerarCodigoUnico(maxTentativas = 30) {
+  for (let i = 0; i < maxTentativas; i++) {
+    const cod = gerarCodigo5();
+    const q = {
+      query:
+        "SELECT VALUE COUNT(1) FROM c WHERE c.codigo = @cod OR c.id = @cod",
+      parameters: [{ name: "@cod", value: cod }],
+    };
+    const { resources = [] } = await container.items
+      .query(q, { enableCrossPartitionQuery: true })
+      .fetchAll();
+    const exists = (resources[0] || 0) > 0;
+    if (!exists) return cod;
+  }
+  throw new Error("Não foi possível gerar código único.");
+}
+
+/** Busca perfil por campo `codigo` (ou por `id=codigo` se você migrar no futuro) */
+export async function buscarPerfilPorCodigo(codigo) {
+  if (!codigo) return null;
+
+  // 1) tenta por id (funciona caso no futuro você migre id=codigo)
+  try {
+    const { resource } = await container.item(codigo, codigo).read();
+    if (resource) return resource;
+  } catch (_) {}
+
+  // 2) busca por campo codigo (funciona agora, sem migração)
+  const q = {
+    query: "SELECT TOP 1 * FROM c WHERE c.codigo = @codigo",
+    parameters: [{ name: "@codigo", value: codigo }],
+  };
+  const { resources = [] } = await container.items
+    .query(q, { enableCrossPartitionQuery: true })
+    .fetchAll();
+  return resources[0] || null;
+}
+
+/** Atualiza perfil endereçando por `codigo`, delegando para `atualizarPerfil(email, patch)` */
+export async function atualizarPerfilPorCodigo(codigo, patch) {
+  const perfil = await buscarPerfilPorCodigo(codigo);
+  if (!perfil) return null;
+  return atualizarPerfil(perfil.email || perfil.id, patch);
+}
+
+/**
+ * Upsert garantindo que exista `codigo` (5 dígitos) no documento.
+ * - Se já existir perfil (por email/id), preserva o codigo existente ou cria um novo e faz upsert.
+ * - NÃO muda `id` do Cosmos agora (continua = email), evitando migração neste passo.
+ */
+export async function upsertPerfilGarantindoCodigo(parcial) {
+  const email = parcial?.email || parcial?.id;
+  if (!email) throw new Error("Email é obrigatório");
+
+  const atual = await buscarPerfil(email); // usa seu item(email, email)
+  if (atual) {
+    const codigo = atual.codigo || (await gerarCodigoUnico());
+    return upsertPerfil({ ...atual, ...parcial, codigo, id: email, email });
+  }
+
+  // novo perfil
+  const codigo = await gerarCodigoUnico();
+  return upsertPerfil({ ...parcial, codigo, id: email, email });
+}
+
+/** Atualiza um certificado endereçando por `codigo`, delegando internamente por email */
+export async function updateCertificadoPorCodigo(codigo, certId, patch) {
+  const perfil = await buscarPerfilPorCodigo(codigo);
+  if (!perfil) return null;
+  return updateCertificado(perfil.email || perfil.id, certId, patch);
+}
