@@ -2,6 +2,7 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
+
 import perfilRouter from "./routes/perfil.js";
 import uploadRouter from "./routes/upload.js";
 import eventosRoutes from "./routes/eventos.js";
@@ -10,52 +11,45 @@ import authRoutes from "./routes/authGoogle.js";
 // package.json com "type": "module"
 import pkg from "./package.json" with { type: "json" };
 import { gate } from "./middleware/gate.js";
-const VERSION = pkg.version;
 
 dotenv.config();
 
+const VERSION = pkg.version;
 const app = express();
 const PORT = process.env.PORT || 4000;
 
-/** ===== Middlewares globais ===== */
-// Se NÃO usar cookie httpOnly:
+/* ================== Middlewares globais ================== */
 app.use(
   cors({
     origin: [
       "http://localhost:5173",
       "https://zealous-bay-00b08311e.6.azurestaticapps.net",
-      "https://www.icmbc.com.br",
       "https://icmbc.com.br",
+      "https://www.icmbc.com.br",
     ],
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
-// Se for usar cookie httpOnly, troque por:
-// app.use(cors({ origin: ["http://localhost:5173"], credentials: true }));
+// Se for usar cookie HttpOnly no futuro, troque para:
+// app.use(cors({ origin: [...mesmos domínios...], credentials: true }));
 
 app.use(express.json());
 
+/* ============ Rotas PÚBLICAS (precisam passar sem gate) ============ */
+app.use("/auth", authRoutes);            // /auth/google
+app.get("/", (_req, res) => res.send(`Backend está rodando! 🚀 v${VERSION}`));
+app.get("/health", (_req, res) => res.status(200).send(`OK v${VERSION}`));
+
+/* ======== Travar o restante da API a partir daqui ======== */
 app.use(gate());
 
-
-/** ===== Rotas ===== */
-app.use("/auth", authRoutes);
+/* ================== Rotas PROTEGIDAS ================== */
 app.use("/perfil", perfilRouter);
 app.use("/upload", uploadRouter);
 app.use("/eventos", eventosRoutes);
 
-// Rota raiz
-app.get("/", (_req, res) => res.send(`Backend está rodando! 🚀 v${VERSION}`));
-
-// Health
-app.get("/health", async (_req, res) => {
-  try {
-    res.status(200).send(`Conexão OK com CosmosDB 🎉 v${VERSION}`);
-  } catch {
-    res.status(500).send(`Erro ao conectar com o banco ❌ v${VERSION}`);
-  }
-});
-
-/** ===== Inicialização ===== */
+/* ================== Inicialização ================== */
 app.listen(PORT, () => {
   console.log(`✅ Servidor v${VERSION} rodando na porta ${PORT}`);
 });
