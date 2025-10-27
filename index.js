@@ -9,6 +9,7 @@ import authRoutes from "./routes/authGoogle.js";
 
 // package.json com "type": "module"
 import pkg from "./package.json" with { type: "json" };
+import { gate } from "./middleware/gate.js";
 const VERSION = pkg.version;
 
 dotenv.config();
@@ -32,6 +33,9 @@ app.use(
 // app.use(cors({ origin: ["http://localhost:5173"], credentials: true }));
 
 app.use(express.json());
+
+app.use(gate());
+
 
 /** ===== Rotas ===== */
 app.use("/auth", authRoutes);
