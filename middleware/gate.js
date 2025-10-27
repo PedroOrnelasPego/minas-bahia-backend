@@ -64,7 +64,7 @@ export function gate() {
         "Set-Cookie",
         cookie.serialize("mbc_gate", token, {
           httpOnly: true,
-          sameSite: "lax",
+          sameSite: "none",
           secure: true,
           path: "/",
           maxAge: 2 * 60 * 60,
