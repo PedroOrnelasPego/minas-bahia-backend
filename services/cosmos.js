@@ -36,7 +36,6 @@ export function hashCpf(cpfDigits = "") {
  *   false        -> não existe
  *   { email, id} -> existe (perfil encontrado)
  */
-// api/services/cosmos.js
 export async function checkCpfExists({ cpfHash, cpfDigits }) {
   if (cpfHash) {
     const q = {
@@ -71,22 +70,18 @@ export async function checkCpfExists({ cpfHash, cpfDigits }) {
 }
 
 /* ============================ Canonicidade ============================ */
-/**
- * Campos do perfil em ORDEM canônica. Use isto para garantir que
- * Microsoft e Google tenham o mesmo objeto.
- */
 const PERFIL_KEYS = [
   "id",
   "email",
-  "criadoVia", // "google" | "microsoft"
+  "criadoVia",
   "createdAt",
 
   // cadastro
   "nome",
   "apelido",
   "corda",
-  "cpf", // <<<<< novo
-  "cpfHash", // <<<<< novo
+  "cpf",
+  "cpfHash",
   "genero",
   "racaCor",
   "dataNascimento",
@@ -104,11 +99,11 @@ const PERFIL_KEYS = [
   "permissaoEventos",
   "aceitouTermos",
 
-  // ===== novos =====
+  // novos
   "cordaVerificada",
   "certificadosTimeline",
 
-  // extras opcionais
+  // extras
   "questionarios",
   "_attachments",
   "_etag",
@@ -124,8 +119,8 @@ export function canonicalizePerfil(input = {}) {
     nome: "",
     apelido: "",
     corda: "",
-    cpf: undefined, // não preenche se não vier
-    cpfHash: undefined, // idem
+    cpf: undefined,
+    cpfHash: undefined,
     genero: "",
     racaCor: "",
     dataNascimento: "",
@@ -165,54 +160,67 @@ export async function listarPerfis() {
   return resources;
 }
 
-// === Aniversários (consultas enxutas) ===============================
+/* ============================ Aniversários ============================ */
 
-/**
- * Lista somente campos básicos de quem tem dataNascimento definida.
- * Usa LIMIT via OFFSET/LIMIT para evitar respostas gigantes.
- */
-export async function listarAniversariosBasico({ limit = 200 } = {}) {
+function mapBirthdayRow(r = {}) {
+  const raw = typeof r.dataNascimento === "string" ? r.dataNascimento : "";
+  const iso = raw.length >= 10 ? raw.slice(0, 10) : "";
+  return {
+    nome: r.nome || "",
+    email: r.email || r.id || "",
+    corda: r.corda || "",
+    dataNascimento: iso,
+  };
+}
+
+/** Lista aniversários básicos (com limit) */
+export async function listarAniversariosBasico({ limit = 2000 } = {}) {
   const q = {
     query: `
-      SELECT c.nome, c.email, c.corda, c.dataNascimento
+      SELECT
+        c.id,
+        c.email,
+        c.nome,
+        c.corda,
+        SUBSTRING(c.dataNascimento, 0, 10) AS dataNascimento
       FROM c
-      WHERE IS_DEFINED(c.dataNascimento)
+      WHERE
+        IS_DEFINED(c.dataNascimento) AND IS_STRING(c.dataNascimento)
+        AND LENGTH(c.dataNascimento) >= 10
       OFFSET 0 LIMIT @lim
     `,
-    parameters: [{ name: "@lim", value: Number(limit) || 200 }],
+    parameters: [{ name: "@lim", value: Number(limit) || 2000 }],
   };
 
   const { resources = [] } = await container.items
     .query(q, { enableCrossPartitionQuery: true })
     .fetchAll();
 
-  return resources.map((r) => ({
-    nome: r.nome || "",
-    email: r.email || "",
-    corda: r.corda || "",
-    dataNascimento: r.dataNascimento || "",
-  }));
+  return resources.map(mapBirthdayRow).filter((x) => x.dataNascimento);
 }
 
-/**
- * Lista aniversários de um mês específico (1-12) sem depender de funções
- * de data do Cosmos. O campo deve estar em ISO (YYYY-MM-DD...).
- * Filtra usando SUBSTRING(c.dataNascimento, 5, 2) = 'MM'
- */
-export async function listarAniversariosPorMes(month, { limit = 200 } = {}) {
+/** Lista aniversários por mês (1..12) */
+export async function listarAniversariosPorMes(month, { limit = 2000 } = {}) {
   const mm = String(Number(month || 0)).padStart(2, "0");
 
   const q = {
     query: `
-      SELECT c.nome, c.email, c.corda, c.dataNascimento
+      SELECT
+        c.id,
+        c.email,
+        c.nome,
+        c.corda,
+        SUBSTRING(c.dataNascimento, 0, 10) AS dataNascimento
       FROM c
-      WHERE IS_DEFINED(c.dataNascimento)
+      WHERE
+        IS_DEFINED(c.dataNascimento) AND IS_STRING(c.dataNascimento)
+        AND LENGTH(c.dataNascimento) >= 7
         AND SUBSTRING(c.dataNascimento, 5, 2) = @mm
       OFFSET 0 LIMIT @lim
     `,
     parameters: [
       { name: "@mm", value: mm },
-      { name: "@lim", value: Number(limit) || 200 },
+      { name: "@lim", value: Number(limit) || 2000 },
     ],
   };
 
@@ -220,12 +228,7 @@ export async function listarAniversariosPorMes(month, { limit = 200 } = {}) {
     .query(q, { enableCrossPartitionQuery: true })
     .fetchAll();
 
-  return resources.map((r) => ({
-    nome: r.nome || "",
-    email: r.email || "",
-    corda: r.corda || "",
-    dataNascimento: r.dataNascimento || "",
-  }));
+  return resources.map(mapBirthdayRow).filter((x) => x.dataNascimento);
 }
 
 /** Busca por id/partitionKey = email. Evita query cross-partition. */
@@ -254,7 +257,6 @@ export async function atualizarPerfil(email, patch) {
   if (!email) throw new Error("Email é obrigatório");
   const current = (await buscarPerfil(email)) || { id: email, email };
 
-  // Se patch tiver cpf, garanta normalização+hash aqui também
   if (patch.cpf) {
     const digits = normalizeCpf(patch.cpf);
     patch.cpf = digits.length === 11 ? digits : undefined;

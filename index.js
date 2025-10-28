@@ -32,13 +32,11 @@ app.use(
     allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
-// Se for usar cookie HttpOnly no futuro, troque para:
-// app.use(cors({ origin: [...mesmos domínios...], credentials: true }));
 
 app.use(express.json());
 
-/* ============ Rotas PÚBLICAS (precisam passar sem gate) ============ */
-app.use("/auth", authRoutes);            // /auth/google
+/* ============ Rotas PÚBLICAS (sem gate) ============ */
+app.use("/auth", authRoutes); // /auth/google
 app.get("/", (_req, res) => res.send(`Backend está rodando! 🚀 v${VERSION}`));
 app.get("/health", (_req, res) => res.status(200).send(`OK v${VERSION}`));
 

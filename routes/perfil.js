@@ -69,12 +69,6 @@ router.get("/:email", async (req, res) => {
 });
 
 /**
- * GET /perfil/exists-cpf?cpf=00000000000
- * (ou ?hash=sha256...)
- * Retorna { exists: true|false }
- */
-
-/**
  * POST /perfil
  * - UPSERT com verificação de CPF (se vier no body)
  * 201 se criou, 200 se upsert (já existia)
@@ -85,7 +79,6 @@ router.post("/", async (req, res) => {
     const email = body.email || body.id;
     if (!email) return res.status(400).json({ erro: "Email é obrigatório" });
 
-    // CPF (opcional) — se vier, normaliza, gera hash e verifica duplicidade
     if (body.cpf) {
       const cpfDigits = normalizeCpf(body.cpf);
       if (cpfDigits.length !== 11) {
@@ -95,7 +88,6 @@ router.post("/", async (req, res) => {
 
       const exists = await checkCpfExists({ cpfHash, cpfDigits });
       if (exists) {
-        // Se já existe um perfil com esse CPF e NÃO é este email, bloqueia
         if (exists.email && exists.email !== email) {
           return res.status(409).json({ erro: "CPF já cadastrado" });
         }
@@ -120,7 +112,6 @@ router.put("/:email", async (req, res) => {
     const { email } = req.params;
     const updates = { ...(req.body || {}) };
 
-    // Se for atualizar/incluir CPF, verifica duplicidade
     if (updates.cpf) {
       const cpfDigits = normalizeCpf(updates.cpf);
       if (cpfDigits.length !== 11) {
@@ -145,7 +136,7 @@ router.put("/:email", async (req, res) => {
   }
 });
 
-// timeline do usuário (ou já vem embutida no GET /perfil/:email)
+// timeline do usuário
 router.get("/:email/certificados", async (req, res) => {
   try {
     const perfil = await buscarPerfil(req.params.email);
@@ -160,7 +151,7 @@ router.get("/:email/certificados", async (req, res) => {
 router.put("/:email/certificados/:id", async (req, res) => {
   try {
     const { email, id } = req.params;
-    const { status, observacao, atualizarCorda } = req.body || {}; // status = "approved" | "rejected"
+    const { status, observacao, atualizarCorda } = req.body || {};
 
     if (!["approved", "rejected"].includes(status)) {
       return res.status(400).json({ erro: "status inválido" });
@@ -178,7 +169,6 @@ router.put("/:email/certificados/:id", async (req, res) => {
       },
     });
 
-    // se aprovado e quiser refletir no perfil
     if (status === "approved" && atualizarCorda === true) {
       const cert = (atualizado.certificadosTimeline || []).find(
         (c) => c.id === id
@@ -198,7 +188,7 @@ router.put("/:email/certificados/:id", async (req, res) => {
   }
 });
 
-// lista global de pendentes (para a página Admin)
+// lista global de pendentes (Admin)
 router.get("/__admin/pendentes", async (_req, res) => {
   try {
     const todos = await listarPerfis();
@@ -220,6 +210,7 @@ router.get("/__admin/pendentes", async (_req, res) => {
   }
 });
 
+// público: aniversários
 router.get("/__public/aniversarios", async (req, res) => {
   try {
     const month = req.query.month ? Number(req.query.month) : null;
@@ -229,7 +220,6 @@ router.get("/__public/aniversarios", async (req, res) => {
       ? await listarAniversariosPorMes(month, { limit })
       : await listarAniversariosBasico({ limit });
 
-    // Se quiser evitar expor email, remova do map abaixo
     res.json(rows);
   } catch (e) {
     console.error("GET /perfil/__public/aniversarios", e?.message || e);
