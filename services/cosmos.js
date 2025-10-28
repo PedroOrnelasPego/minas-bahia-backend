@@ -237,3 +237,53 @@ export async function updateCertificado(email, certId, patch) {
   const { resource } = await container.item(email, email).replace(next);
   return resource;
 }
+
+export async function listarAniversariosPorMes(month, { limit = 2000 } = {}) {
+  const mm = String(Number(month || 0)).padStart(2, "0");
+  const q = {
+    query: `
+      SELECT TOP @limit c.id, c.email, c.nome, c.corda, c.dataNascimento
+      FROM c
+      WHERE IS_DEFINED(c.dataNascimento)
+        AND LENGTH(c.dataNascimento) >= 7
+        AND SUBSTRING(c.dataNascimento, 6, 2) = @mm
+    `,
+    parameters: [
+      { name: "@mm", value: mm },
+      { name: "@limit", value: Number(limit) },
+    ],
+  };
+  const { resources = [] } = await container.items
+    .query(q, { enableCrossPartitionQuery: true })
+    .fetchAll();
+
+  // normaliza retorno mínimo
+  return resources.map((r) => ({
+    nome: r.nome || "",
+    email: r.email || r.id,
+    corda: r.corda || "",
+    dataNascimento: r.dataNascimento || "",
+  }));
+}
+
+/** Lista projeção mínima (todos) — use com parcimônia ou com limit/after */
+export async function listarAniversariosBasico({ limit = 2000 } = {}) {
+  const q = {
+    query: `
+      SELECT TOP @limit c.id, c.email, c.nome, c.corda, c.dataNascimento
+      FROM c
+      WHERE IS_DEFINED(c.dataNascimento)
+    `,
+    parameters: [{ name: "@limit", value: Number(limit) }],
+  };
+  const { resources = [] } = await container.items
+    .query(q, { enableCrossPartitionQuery: true })
+    .fetchAll();
+
+  return resources.map((r) => ({
+    nome: r.nome || "",
+    email: r.email || r.id,
+    corda: r.corda || "",
+    dataNascimento: r.dataNascimento || "",
+  }));
+}

@@ -218,4 +218,21 @@ router.get("/__admin/pendentes", async (_req, res) => {
   }
 });
 
+router.get("/__public/aniversarios", async (req, res) => {
+  try {
+    const month = req.query.month ? Number(req.query.month) : null;
+    const limit = req.query.limit ? Number(req.query.limit) : 2000;
+
+    const rows = month
+      ? await listarAniversariosPorMes(month, { limit })
+      : await listarAniversariosBasico({ limit });
+
+    // Se quiser evitar expor email, remova do map abaixo
+    res.json(rows);
+  } catch (e) {
+    console.error("GET /perfil/__public/aniversarios", e?.message || e);
+    res.status(500).json({ erro: "Erro ao listar aniversários." });
+  }
+});
+
 export default router;
