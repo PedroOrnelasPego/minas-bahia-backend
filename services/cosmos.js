@@ -165,6 +165,69 @@ export async function listarPerfis() {
   return resources;
 }
 
+// === Aniversários (consultas enxutas) ===============================
+
+/**
+ * Lista somente campos básicos de quem tem dataNascimento definida.
+ * Usa LIMIT via OFFSET/LIMIT para evitar respostas gigantes.
+ */
+export async function listarAniversariosBasico({ limit = 200 } = {}) {
+  const q = {
+    query: `
+      SELECT c.nome, c.email, c.corda, c.dataNascimento
+      FROM c
+      WHERE IS_DEFINED(c.dataNascimento)
+      OFFSET 0 LIMIT @lim
+    `,
+    parameters: [{ name: "@lim", value: Number(limit) || 200 }],
+  };
+
+  const { resources = [] } = await container.items
+    .query(q, { enableCrossPartitionQuery: true })
+    .fetchAll();
+
+  return resources.map((r) => ({
+    nome: r.nome || "",
+    email: r.email || "",
+    corda: r.corda || "",
+    dataNascimento: r.dataNascimento || "",
+  }));
+}
+
+/**
+ * Lista aniversários de um mês específico (1-12) sem depender de funções
+ * de data do Cosmos. O campo deve estar em ISO (YYYY-MM-DD...).
+ * Filtra usando SUBSTRING(c.dataNascimento, 5, 2) = 'MM'
+ */
+export async function listarAniversariosPorMes(month, { limit = 200 } = {}) {
+  const mm = String(Number(month || 0)).padStart(2, "0");
+
+  const q = {
+    query: `
+      SELECT c.nome, c.email, c.corda, c.dataNascimento
+      FROM c
+      WHERE IS_DEFINED(c.dataNascimento)
+        AND SUBSTRING(c.dataNascimento, 5, 2) = @mm
+      OFFSET 0 LIMIT @lim
+    `,
+    parameters: [
+      { name: "@mm", value: mm },
+      { name: "@lim", value: Number(limit) || 200 },
+    ],
+  };
+
+  const { resources = [] } = await container.items
+    .query(q, { enableCrossPartitionQuery: true })
+    .fetchAll();
+
+  return resources.map((r) => ({
+    nome: r.nome || "",
+    email: r.email || "",
+    corda: r.corda || "",
+    dataNascimento: r.dataNascimento || "",
+  }));
+}
+
 /** Busca por id/partitionKey = email. Evita query cross-partition. */
 export async function buscarPerfil(email) {
   if (!email) return null;
@@ -236,54 +299,4 @@ export async function updateCertificado(email, certId, patch) {
   const next = canonicalizePerfil({ ...cur, certificadosTimeline: list });
   const { resource } = await container.item(email, email).replace(next);
   return resource;
-}
-
-export async function listarAniversariosPorMes(month, { limit = 2000 } = {}) {
-  const mm = String(Number(month || 0)).padStart(2, "0");
-  const q = {
-    query: `
-      SELECT TOP @limit c.id, c.email, c.nome, c.corda, c.dataNascimento
-      FROM c
-      WHERE IS_DEFINED(c.dataNascimento)
-        AND LENGTH(c.dataNascimento) >= 7
-        AND SUBSTRING(c.dataNascimento, 6, 2) = @mm
-    `,
-    parameters: [
-      { name: "@mm", value: mm },
-      { name: "@limit", value: Number(limit) },
-    ],
-  };
-  const { resources = [] } = await container.items
-    .query(q, { enableCrossPartitionQuery: true })
-    .fetchAll();
-
-  // normaliza retorno mínimo
-  return resources.map((r) => ({
-    nome: r.nome || "",
-    email: r.email || r.id,
-    corda: r.corda || "",
-    dataNascimento: r.dataNascimento || "",
-  }));
-}
-
-/** Lista projeção mínima (todos) — use com parcimônia ou com limit/after */
-export async function listarAniversariosBasico({ limit = 2000 } = {}) {
-  const q = {
-    query: `
-      SELECT TOP @limit c.id, c.email, c.nome, c.corda, c.dataNascimento
-      FROM c
-      WHERE IS_DEFINED(c.dataNascimento)
-    `,
-    parameters: [{ name: "@limit", value: Number(limit) }],
-  };
-  const { resources = [] } = await container.items
-    .query(q, { enableCrossPartitionQuery: true })
-    .fetchAll();
-
-  return resources.map((r) => ({
-    nome: r.nome || "",
-    email: r.email || r.id,
-    corda: r.corda || "",
-    dataNascimento: r.dataNascimento || "",
-  }));
 }

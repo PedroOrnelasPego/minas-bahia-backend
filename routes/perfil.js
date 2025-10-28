@@ -8,6 +8,8 @@ import {
   checkCpfExists,
   normalizeCpf,
   hashCpf,
+  listarAniversariosPorMes,
+  listarAniversariosBasico,
 } from "../services/cosmos.js";
 import { updateCertificado } from "../services/cosmos.js";
 
