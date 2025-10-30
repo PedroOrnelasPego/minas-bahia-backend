@@ -3,7 +3,8 @@ import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 
-import perfilRouter from "./routes/perfil.js";
+import perfilPublicoRouter from "./routes/perfilPublico.js"; // << NOVO
+import perfilRouter from "./routes/perfil.js"; // (agora só rotas protegidas)
 import uploadRouter from "./routes/upload.js";
 import eventosRoutes from "./routes/eventos.js";
 import authRoutes from "./routes/authGoogle.js";
@@ -35,15 +36,28 @@ app.use(
 
 app.use(express.json());
 
-/* ============ Rotas PÚBLICAS (sem gate) ============ */
-app.use("/auth", authRoutes); // /auth/google
+/* ================== Rotas PÚBLICAS (sem gate) ================== */
+
+// auth pública
+app.use("/auth", authRoutes);
+
+// health/basic info
 app.get("/", (_req, res) => res.send(`Backend está rodando! 🚀 v${VERSION}`));
 app.get("/health", (_req, res) => res.status(200).send(`OK v${VERSION}`));
+
+// cadastro inicial e checagem de CPF (público, sem exigir cookie gate)
+app.use("/perfil", perfilPublicoRouter);
 
 /* ======== Travar o restante da API a partir daqui ======== */
 app.use(gate());
 
 /* ================== Rotas PROTEGIDAS ================== */
+/**
+ * IMPORTANTE:
+ * A partir daqui o gate() já rodou,
+ * então todas essas rotas vão exigir sessão válida via cookie mbc_gate,
+ * exceto as que já foram expostas acima no perfilPublicoRouter.
+ */
 app.use("/perfil", perfilRouter);
 app.use("/upload", uploadRouter);
 app.use("/eventos", eventosRoutes);

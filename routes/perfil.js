@@ -3,7 +3,6 @@ import express from "express";
 import {
   buscarPerfil,
   listarPerfis,
-  upsertPerfil,
   atualizarPerfil,
   checkCpfExists,
   normalizeCpf,
@@ -15,7 +14,10 @@ import { updateCertificado } from "../services/cosmos.js";
 
 const router = express.Router();
 
-/** GET /perfil */
+/** GET /perfil
+ * Lista todos os perfis (uso administrativo)
+ * PROTEGIDO PELO gate()
+ */
 router.get("/", async (_req, res) => {
   try {
     const perfis = await listarPerfis();
@@ -26,37 +28,10 @@ router.get("/", async (_req, res) => {
   }
 });
 
-// cheque de CPF - DEVE vir antes de "/:email"
-router.get("/__check/exists-cpf", async (req, res) => {
-  try {
-    const cpfParam = String(req.query.cpf || "").trim();
-    const hashParam = String(req.query.hash || "").trim();
-
-    let cpfDigits = "";
-    let cpfHash = "";
-
-    if (cpfParam) {
-      cpfDigits = normalizeCpf(cpfParam);
-      if (cpfDigits.length !== 11) return res.json({ exists: false });
-      cpfHash = hashCpf(cpfDigits);
-    } else if (hashParam) {
-      cpfHash = hashParam;
-    } else {
-      return res.json({ exists: false });
-    }
-
-    const exists = await checkCpfExists({
-      cpfHash,
-      cpfDigits: cpfDigits || null,
-    });
-    res.json({ exists: Boolean(exists) });
-  } catch (err) {
-    console.error("GET /perfil/__check/exists-cpf", err?.message || err);
-    res.status(200).json({ exists: false });
-  }
-});
-
-/** GET /perfil/:email */
+/** GET /perfil/:email
+ * Busca perfil específico
+ * PROTEGIDO PELO gate()
+ */
 router.get("/:email", async (req, res) => {
   try {
     const perfil = await buscarPerfil(req.params.email);
@@ -68,57 +43,23 @@ router.get("/:email", async (req, res) => {
   }
 });
 
-/**
- * POST /perfil
- * - UPSERT com verificação de CPF (se vier no body)
- * 201 se criou, 200 se upsert (já existia)
+/** PUT /perfil/:email
+ * Atualiza/merge perfil existente
+ * PROTEGIDO PELO gate()
  */
-router.post("/", async (req, res) => {
-  try {
-    const body = req.body || {};
-    const email = body.email || body.id;
-    if (!email) return res.status(400).json({ erro: "Email é obrigatório" });
-
-    if (body.cpf) {
-      const cpfDigits = normalizeCpf(body.cpf);
-      if (cpfDigits.length !== 11) {
-        return res.status(400).json({ erro: "CPF inválido" });
-      }
-      const cpfHash = hashCpf(cpfDigits);
-
-      const exists = await checkCpfExists({ cpfHash, cpfDigits });
-      if (exists) {
-        if (exists.email && exists.email !== email) {
-          return res.status(409).json({ erro: "CPF já cadastrado" });
-        }
-      }
-
-      body.cpf = cpfDigits;
-      body.cpfHash = cpfHash;
-    }
-
-    const existed = !!(await buscarPerfil(email));
-    const salvo = await upsertPerfil(body);
-    res.status(existed ? 200 : 201).json(salvo);
-  } catch (err) {
-    console.error("POST /perfil erro:", err?.message || err);
-    res.status(500).json({ erro: "Erro ao criar/atualizar perfil." });
-  }
-});
-
-/** PUT /perfil/:email (merge + canonicidade) */
 router.put("/:email", async (req, res) => {
   try {
     const { email } = req.params;
     const updates = { ...(req.body || {}) };
 
+    // validação/normalização do CPF
     if (updates.cpf) {
       const cpfDigits = normalizeCpf(updates.cpf);
       if (cpfDigits.length !== 11) {
         return res.status(400).json({ erro: "CPF inválido" });
       }
-      const cpfHash = hashCpf(cpfDigits);
 
+      const cpfHash = hashCpf(cpfDigits);
       const exists = await checkCpfExists({ cpfHash, cpfDigits });
       if (exists && exists.email !== email) {
         return res.status(409).json({ erro: "CPF já cadastrado" });
@@ -136,7 +77,10 @@ router.put("/:email", async (req, res) => {
   }
 });
 
-// timeline do usuário
+/** GET /perfil/:email/certificados
+ * Timeline de certificados do usuário
+ * PROTEGIDO PELO gate()
+ */
 router.get("/:email/certificados", async (req, res) => {
   try {
     const perfil = await buscarPerfil(req.params.email);
@@ -147,7 +91,10 @@ router.get("/:email/certificados", async (req, res) => {
   }
 });
 
-// aprovar/reprovar um certificado (Painel Admin)
+/** PUT /perfil/:email/certificados/:id
+ * Aprovar/reprovar certificado (Painel Admin)
+ * PROTEGIDO PELO gate()
+ */
 router.put("/:email/certificados/:id", async (req, res) => {
   try {
     const { email, id } = req.params;
@@ -188,7 +135,10 @@ router.put("/:email/certificados/:id", async (req, res) => {
   }
 });
 
-// lista global de pendentes (Admin)
+/** GET /perfil/__admin/pendentes
+ * Lista global de certificados pendentes
+ * PROTEGIDO PELO gate()
+ */
 router.get("/__admin/pendentes", async (_req, res) => {
   try {
     const todos = await listarPerfis();
@@ -210,7 +160,11 @@ router.get("/__admin/pendentes", async (_req, res) => {
   }
 });
 
-// público: aniversários
+/** GET /perfil/__public/aniversarios
+ * público pra listar aniversários
+ * MAS continua depois do gate(), então hoje ainda exige o gate.
+ * Se quiser que isso seja 100% público, pode mover pra perfilPublicoRouter também.
+ */
 router.get("/__public/aniversarios", async (req, res) => {
   try {
     const month = req.query.month ? Number(req.query.month) : null;
