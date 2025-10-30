@@ -47,6 +47,7 @@ app.get("/health", (_req, res) => res.status(200).send(`OK v${VERSION}`));
 
 // cadastro inicial e checagem de CPF (público, sem exigir cookie gate)
 app.use("/perfil", perfilPublicoRouter);
+app.use("/upload", uploadRouter);
 
 /* ======== Travar o restante da API a partir daqui ======== */
 app.use(gate());
@@ -59,7 +60,6 @@ app.use(gate());
  * exceto as que já foram expostas acima no perfilPublicoRouter.
  */
 app.use("/perfil", perfilRouter);
-app.use("/upload", uploadRouter);
 app.use("/eventos", eventosRoutes);
 
 /* ================== Inicialização ================== */
