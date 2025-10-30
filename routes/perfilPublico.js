@@ -3,6 +3,7 @@ import express from "express";
 import {
   buscarPerfil,
   upsertPerfil,
+  atualizarPerfil,
   checkCpfExists,
   normalizeCpf,
   hashCpf,
@@ -10,7 +11,6 @@ import {
 
 const router = express.Router();
 
-// mesma whitelist que você usa no gate()
 const ALLOWED_ORIGINS = new Set([
   "http://localhost:5173",
   "https://zealous-bay-00b08311e.6.azurestaticapps.net",
@@ -18,10 +18,6 @@ const ALLOWED_ORIGINS = new Set([
   "https://www.icmbc.com.br",
 ]);
 
-/**
- * helper que valida se requisição está vindo do seu front
- * (isso aqui substitui a exigência do cookie mbc_gate, só pra esta rota pública)
- */
 function validarOrigemMinima(req, res) {
   const origin = (req.headers.origin || "").toString();
   const referer = (req.headers.referer || "").toString();
@@ -44,9 +40,7 @@ function validarOrigemMinima(req, res) {
       return false;
     }
   } else {
-    // Safari iOS às vezes manda POST sem origin/referer em cenários MUITO restritos,
-    // mas em geral vindo do seu site mobile ele manda.
-    // Se isso começar a bloquear demais, você pode AFROUXAR esse retorno e aceitar tudo.
+    // se quiser ser ultra liberal pro Safari iOS, você pode trocar este bloco por `return true;`
     res.status(401).json({ erro: "Sem Origin/Referer" });
     return false;
   }
@@ -56,9 +50,6 @@ function validarOrigemMinima(req, res) {
 
 /**
  * GET /perfil/__check/exists-cpf
- * usado no front pra avisar se o CPF já está cadastrado
- *
- * Continua público para funcionar antes de salvar.
  */
 router.get("/__check/exists-cpf", async (req, res) => {
   try {
@@ -88,21 +79,16 @@ router.get("/__check/exists-cpf", async (req, res) => {
     res.json({ exists: Boolean(exists) });
   } catch (err) {
     console.error("GET /perfil/__check/exists-cpf", err?.message || err);
-    // Em caso de erro de infra, não vamos travar o cadastro à força.
     res.status(200).json({ exists: false });
   }
 });
 
 /**
  * POST /perfil
- * cadastro inicial
- *
- * 🔓 Agora ESSA rota não passa mais pelo gate() do cookie.
- * mas ainda validamos Origin/Referer pra evitar robô aleatório.
+ * cadastro inicial (cria ou faz upsert)
  */
 router.post("/", async (req, res) => {
   try {
-    // validação leve de origem
     if (!validarOrigemMinima(req, res)) return;
 
     const body = req.body || {};
@@ -111,7 +97,6 @@ router.post("/", async (req, res) => {
       return res.status(400).json({ erro: "Email é obrigatório" });
     }
 
-    // normalizar + verificar CPF duplicado
     if (body.cpf) {
       const cpfDigits = normalizeCpf(body.cpf);
       if (cpfDigits.length !== 11) {
@@ -122,7 +107,6 @@ router.post("/", async (req, res) => {
       const exists = await checkCpfExists({ cpfHash, cpfDigits });
 
       if (exists && exists.email && exists.email !== email) {
-        // já tem esse CPF em outro email
         return res.status(409).json({ erro: "CPF já cadastrado" });
       }
 
@@ -130,7 +114,6 @@ router.post("/", async (req, res) => {
       body.cpfHash = cpfHash;
     }
 
-    // upsertPerfil já cria se não tem, atualiza se já tinha
     const already = await buscarPerfil(email);
     const salvo = await upsertPerfil({
       ...body,
@@ -144,6 +127,47 @@ router.post("/", async (req, res) => {
     res
       .status(500)
       .json({ erro: "Erro ao criar/atualizar perfil no cadastro inicial." });
+  }
+});
+
+/**
+ * PUT /perfil/self
+ * atualização de perfil do PRÓPRIO usuário, sem gate()
+ * o front vai mandar { email, ...dadosEditados }
+ */
+router.put("/self", async (req, res) => {
+  try {
+    if (!validarOrigemMinima(req, res)) return;
+
+    const body = req.body || {};
+    const email = body.email || body.id;
+    if (!email) {
+      return res.status(400).json({ erro: "Email é obrigatório" });
+    }
+
+    // não deixo mudar cpf pra um já usado por outro
+    if (body.cpf) {
+      const cpfDigits = normalizeCpf(body.cpf);
+      if (cpfDigits.length !== 11) {
+        return res.status(400).json({ erro: "CPF inválido" });
+      }
+
+      const cpfHash = hashCpf(cpfDigits);
+      const exists = await checkCpfExists({ cpfHash, cpfDigits });
+      if (exists && exists.email !== email) {
+        return res.status(409).json({ erro: "CPF já cadastrado" });
+      }
+
+      body.cpf = cpfDigits;
+      body.cpfHash = cpfHash;
+    }
+
+    // agora usa a mesma lógica de atualizarPerfil que a rota protegida usa
+    const salvo = await atualizarPerfil(email, body);
+    res.status(200).json(salvo);
+  } catch (err) {
+    console.error("PUT /perfil/self erro:", err?.message || err);
+    res.status(500).json({ erro: "Erro ao atualizar seu perfil." });
   }
 });
 
