@@ -5,6 +5,7 @@ import {
   BlobServiceClient,
   StorageSharedKeyCredential,
 } from "@azure/storage-blob";
+import { listarPessoasParaChamada } from "../services/cosmos.js";
 
 dotenv.config();
 
@@ -13,7 +14,11 @@ const router = express.Router();
 /* ============================================================================
    CONFIGURAÇÃO DO AZURE BLOB (mesmo padrão do upload.js)
    ========================================================================== */
-const containerName = "certificados";
+// Container próprio para não poluir o container de certificados
+const containerName = process.env.CHAMADA_CONTAINER_NAME || "chamada";
+// Legado (onde a chamada era salva antes): container "certificados" e prefixo "chamada/"
+const legacyContainerName =
+  process.env.CHAMADA_LEGACY_CONTAINER_NAME || "certificados";
 
 function createBlobServiceClient() {
   const conn = process.env.AZURE_STORAGE_CONNECTION_STRING;
@@ -44,7 +49,8 @@ function createBlobServiceClient() {
 const blobServiceClient = createBlobServiceClient();
 const containerClient = blobServiceClient.getContainerClient(containerName);
 
-const BASE_FOLDER = "chamada";
+const legacyContainerClient =
+  blobServiceClient.getContainerClient(legacyContainerName);
 
 function normalizeMonthISO(v) {
   const s = String(v || "").trim();
@@ -52,11 +58,20 @@ function normalizeMonthISO(v) {
 }
 
 function blobNameForMonth(monthISO) {
-  return `${BASE_FOLDER}/${monthISO}.json`;
+  // No container "chamada" salvamos na raiz: YYYY-MM.json
+  return `${monthISO}.json`;
 }
 
-async function downloadJsonIfExists(blobName) {
-  const b = containerClient.getBlobClient(blobName);
+function legacyBlobNameForMonth(monthISO) {
+  // No legado (container "certificados") salvava em chamada/YYYY-MM.json
+  return `chamada/${monthISO}.json`;
+}
+
+async function downloadJsonIfExists(container, blobName) {
+  const existsContainer = await container.exists();
+  if (!existsContainer) return null;
+
+  const b = container.getBlobClient(blobName);
   const exists = await b.exists();
   if (!exists) return null;
 
@@ -80,10 +95,15 @@ router.get("/", async (req, res) => {
     }
 
     const blobName = blobNameForMonth(monthISO);
-    const json = await downloadJsonIfExists(blobName);
+    let json = await downloadJsonIfExists(containerClient, blobName);
+
+    // fallback: lê do legado, para não perder dados já salvos
     if (!json) {
-      return res.status(404).json({ exists: false });
+      const legacyName = legacyBlobNameForMonth(monthISO);
+      json = await downloadJsonIfExists(legacyContainerClient, legacyName);
     }
+
+    if (!json) return res.status(404).json({ exists: false });
 
     return res.json({ exists: true, data: json });
   } catch (e) {
@@ -147,15 +167,16 @@ router.get("/months", async (req, res) => {
     const year = String(req.query.year || "").trim();
     const yearOk = year ? /^\d{4}$/.test(year) : false;
 
-    const prefix = yearOk ? `${BASE_FOLDER}/${year}-` : `${BASE_FOLDER}/`;
+    const prefix = yearOk ? `${year}-` : "";
     const months = [];
 
-    for await (const blob of containerClient.listBlobsFlat({ prefix })) {
-      const nameOnly = blob.name.slice(prefix.length);
-      // quando prefix é chamada/ (sem ano), nameOnly começa com 2026-01.json
-      const full = yearOk ? `${year}-${nameOnly}` : nameOnly;
-      const m = full.replace(/\.json$/i, "");
-      if (/^\d{4}-\d{2}$/.test(m)) months.push(m);
+    const existsContainer = await containerClient.exists();
+    if (existsContainer) {
+      for await (const blob of containerClient.listBlobsFlat({ prefix })) {
+        const nameOnly = blob.name;
+        const m = nameOnly.replace(/\.json$/i, "");
+        if (/^\d{4}-\d{2}$/.test(m)) months.push(m);
+      }
     }
 
     months.sort();
@@ -163,6 +184,20 @@ router.get("/months", async (req, res) => {
   } catch (e) {
     console.error("GET /chamada/months erro:", e?.message || e);
     return res.status(500).json({ erro: "Erro ao listar meses." });
+  }
+});
+
+/**
+ * GET /chamada/pessoas
+ * Lista mínima para a tabela: [{ email, nome }]
+ */
+router.get("/pessoas", async (_req, res) => {
+  try {
+    const items = await listarPessoasParaChamada({ limit: 5000 });
+    return res.json({ items });
+  } catch (e) {
+    console.error("GET /chamada/pessoas erro:", e?.message || e);
+    return res.status(500).json({ erro: "Erro ao listar pessoas." });
   }
 });
 

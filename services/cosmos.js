@@ -160,6 +160,51 @@ export async function listarPerfis() {
   return resources;
 }
 
+/**
+ * Lista mínima para a tela de chamada (somente nome + email).
+ * Filtra perfis que já concluíram o cadastro (campos essenciais + aceitouTermos).
+ */
+export async function listarPessoasParaChamada({ limit = 5000 } = {}) {
+  const q = {
+    query: `
+      SELECT
+        c.id,
+        c.email,
+        c.nome
+      FROM c
+      WHERE
+        c.aceitouTermos = true
+        AND IS_DEFINED(c.nome) AND IS_STRING(c.nome) AND LENGTH(c.nome) > 0
+        AND IS_DEFINED(c.corda) AND IS_STRING(c.corda) AND LENGTH(c.corda) > 0
+        AND IS_DEFINED(c.genero) AND IS_STRING(c.genero) AND LENGTH(c.genero) > 0
+        AND IS_DEFINED(c.racaCor) AND IS_STRING(c.racaCor) AND LENGTH(c.racaCor) > 0
+        AND IS_DEFINED(c.dataNascimento) AND IS_STRING(c.dataNascimento) AND LENGTH(c.dataNascimento) > 0
+        AND IS_DEFINED(c.whatsapp) AND IS_STRING(c.whatsapp) AND LENGTH(c.whatsapp) > 0
+        AND IS_DEFINED(c.contatoEmergencia) AND IS_STRING(c.contatoEmergencia) AND LENGTH(c.contatoEmergencia) > 0
+        AND IS_DEFINED(c.localTreino) AND IS_STRING(c.localTreino) AND LENGTH(c.localTreino) > 0
+        AND IS_DEFINED(c.horarioTreino) AND IS_STRING(c.horarioTreino) AND LENGTH(c.horarioTreino) > 0
+        AND IS_DEFINED(c.professorReferencia) AND IS_STRING(c.professorReferencia) AND LENGTH(c.professorReferencia) > 0
+        AND IS_DEFINED(c.endereco) AND IS_STRING(c.endereco) AND LENGTH(c.endereco) > 0
+        AND IS_DEFINED(c.numero) AND IS_STRING(c.numero) AND LENGTH(c.numero) > 0
+        AND IS_DEFINED(c.inicioNoGrupo) AND IS_STRING(c.inicioNoGrupo) AND LENGTH(c.inicioNoGrupo) > 0
+      OFFSET 0 LIMIT @lim
+    `,
+    parameters: [{ name: "@lim", value: Number(limit) || 5000 }],
+  };
+
+  const { resources = [] } = await container.items
+    .query(q, { enableCrossPartitionQuery: true })
+    .fetchAll();
+
+  return (resources || [])
+    .map((r) => ({
+      email: r.email || r.id || "",
+      nome: (r.nome || "").trim(),
+    }))
+    .filter((r) => !!r.email)
+    .sort((a, b) => (a.nome || a.email).localeCompare(b.nome || b.email));
+}
+
 /* ============================ Aniversários ============================ */
 
 function mapBirthdayRow(r = {}) {
