@@ -8,6 +8,7 @@ import perfilRouter from "./routes/perfil.js"; // (agora só rotas protegidas)
 import uploadRouter from "./routes/upload.js";
 import eventosRoutes from "./routes/eventos.js";
 import authRoutes from "./routes/authGoogle.js";
+import chamadaRoutes from "./routes/chamada.js";
 
 // package.json com "type": "module"
 import pkg from "./package.json" with { type: "json" };
@@ -31,7 +32,7 @@ app.use(
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
-  })
+  }),
 );
 
 app.use(express.json());
@@ -61,8 +62,13 @@ app.use(gate());
  */
 app.use("/perfil", perfilRouter);
 app.use("/eventos", eventosRoutes);
+app.use("/chamada", chamadaRoutes);
 
 /* ================== Inicialização ================== */
 app.listen(PORT, () => {
   console.log(`✅ Servidor v${VERSION} rodando na porta ${PORT}`);
 });
+
+/*
+
+VOOLTAR O "app.use("/upload", uploadRouter);" PARA DEBAIXO DO GATE E TESTAR!!!!!!!!!!!!!!!!!!!!!!!!!!!! E PEGAR A RESPOSTA DO CHAT GPT POR ULTIMO TAMBÉM!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! */
