@@ -1,5 +1,8 @@
 -> Para rodar o back: node index.js
 
+-> exemplo de um get:
+https://portal-capoeira-backend-b4hucqbpbfd3aubd.brazilsouth-01.azurewebsites.net/perfil/contato@capoeiraminasbahia.com.br
 
-
--> exemplo de um get: https://portal-capoeira-backend-b4hucqbpbfd3aubd.brazilsouth-01.azurewebsites.net/perfil/contato@capoeiraminasbahia.com.br
+https://hoppscotch.io/
+-> verificar versão e integridade do back:
+https://portal-capoeira-backend-b4hucqbpbfd3aubd.brazilsouth-01.azurewebsites.net/

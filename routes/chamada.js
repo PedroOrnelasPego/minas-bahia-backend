@@ -1,6 +1,7 @@
 // api/routes/chamada.js
 import express from "express";
 import dotenv from "dotenv";
+import crypto from "node:crypto";
 import {
   BlobServiceClient,
   StorageSharedKeyCredential,
@@ -10,6 +11,54 @@ import { listarPessoasParaChamada } from "../services/cosmos.js";
 dotenv.config();
 
 const router = express.Router();
+
+const ID_SECRET =
+  process.env.CHAMADA_ID_SECRET ||
+  process.env.PORTAL_GATE_SECRET ||
+  "dev-secret-change-me";
+
+function pessoaIdFromEmail(email) {
+  const clean = String(email || "")
+    .trim()
+    .toLowerCase();
+  if (!clean) return "";
+  // ID estável, não reversível sem o segredo.
+  // Truncado para ficar curto no payload.
+  return crypto
+    .createHmac("sha256", ID_SECRET)
+    .update(clean)
+    .digest("base64url")
+    .slice(0, 22);
+}
+
+function normalizeEntryId(v) {
+  const s = String(v || "").trim();
+  if (!s) return "";
+  // Legado: entries armazenavam emails. Convertemos para ID.
+  if (s.includes("@")) return pessoaIdFromEmail(s);
+  return s;
+}
+
+function normalizeEntries(entries) {
+  if (!entries || typeof entries !== "object") return {};
+  const out = {};
+  for (const [dateISO, arr] of Object.entries(entries)) {
+    const list = Array.isArray(arr) ? arr : [];
+    const mapped = list.map(normalizeEntryId).filter(Boolean);
+    out[dateISO] = Array.from(new Set(mapped));
+  }
+  return out;
+}
+
+function normalizePayload(payload, monthISO) {
+  const p = payload && typeof payload === "object" ? payload : {};
+  return {
+    ...p,
+    monthISO,
+    entries: normalizeEntries(p.entries),
+    schemaVersion: 2,
+  };
+}
 
 /* ============================================================================
    CONFIGURAÇÃO DO AZURE BLOB (mesmo padrão do upload.js)
@@ -105,7 +154,9 @@ router.get("/", async (req, res) => {
 
     if (!json) return res.status(404).json({ exists: false });
 
-    return res.json({ exists: true, data: json });
+    // Normaliza para garantir que nunca retornaremos emails em entries.
+    const normalized = normalizePayload(json, monthISO);
+    return res.json({ exists: true, data: normalized });
   } catch (e) {
     console.error("GET /chamada erro:", e?.message || e);
     return res.status(500).json({ erro: "Erro ao buscar chamada." });
@@ -132,15 +183,12 @@ router.put("/", async (req, res) => {
     await containerClient.createIfNotExists();
 
     const blobName = blobNameForMonth(monthISO);
-    const json = JSON.stringify(
-      {
-        ...payload,
-        monthISO,
-        savedAt: new Date().toISOString(),
-      },
-      null,
-      0,
-    );
+    const sanitized = {
+      ...normalizePayload(payload, monthISO),
+      savedAt: new Date().toISOString(),
+    };
+
+    const json = JSON.stringify(sanitized, null, 0);
 
     await containerClient
       .getBlockBlobClient(blobName)
@@ -189,11 +237,20 @@ router.get("/months", async (req, res) => {
 
 /**
  * GET /chamada/pessoas
- * Lista mínima para a tabela: [{ email, nome }]
+ * Lista mínima para a tabela: [{ id, nome }]
+ * (id é pseudônimo estável do email; email não é exposto)
  */
 router.get("/pessoas", async (_req, res) => {
   try {
-    const items = await listarPessoasParaChamada({ limit: 5000 });
+    const rows = await listarPessoasParaChamada({ limit: 5000 });
+    const items = (Array.isArray(rows) ? rows : [])
+      .map((r) => ({
+        id: pessoaIdFromEmail(r.email),
+        nome: (r.nome || "").trim(),
+      }))
+      .filter((r) => !!r.id)
+      .sort((a, b) => (a.nome || a.id).localeCompare(b.nome || b.id));
+
     return res.json({ items });
   } catch (e) {
     console.error("GET /chamada/pessoas erro:", e?.message || e);
