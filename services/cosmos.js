@@ -176,7 +176,8 @@ export async function listarPessoasParaChamada({ limit = 5000 } = {}) {
         c.localTreino,
         c.horarioTreino,
         c.daAula,
-        c.nivelAcesso
+        c.nivelAcesso,
+        c.apelido
       FROM c
       WHERE
         c.aceitouTermos = true
@@ -210,6 +211,7 @@ export async function listarPessoasParaChamada({ limit = 5000 } = {}) {
       horarioTreino: r.horarioTreino || "",
       daAula: !!r.daAula,
       nivelAcesso: r.nivelAcesso || "aluno",
+      apelido: (r.apelido || "").trim(),
     }))
     .filter((r) => !!r.email)
     .sort((a, b) => (a.nome || a.email).localeCompare(b.nome || b.email));
@@ -222,6 +224,7 @@ function mapBirthdayRow(r = {}) {
   const iso = raw.length >= 10 ? raw.slice(0, 10) : "";
   return {
     nome: r.nome || "",
+    apelido: r.apelido || "",
     email: r.email || r.id || "",
     corda: r.corda || "",
     dataNascimento: iso,
@@ -236,6 +239,7 @@ export async function listarAniversariosBasico({ limit = 2000 } = {}) {
         c.id,
         c.email,
         c.nome,
+        c.apelido,
         c.corda,
         SUBSTRING(c.dataNascimento, 0, 10) AS dataNascimento
       FROM c
@@ -264,6 +268,7 @@ export async function listarAniversariosPorMes(month, { limit = 2000 } = {}) {
         c.id,
         c.email,
         c.nome,
+        c.apelido,
         c.corda,
         SUBSTRING(c.dataNascimento, 0, 10) AS dataNascimento
       FROM c
