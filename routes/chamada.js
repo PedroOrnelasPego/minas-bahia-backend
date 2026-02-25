@@ -106,50 +106,57 @@ function normalizeMonthISO(v) {
   return /^\d{4}-\d{2}$/.test(s) ? s : "";
 }
 
-function blobNameForMonth(monthISO) {
-  // No container "chamada" salvamos na raiz: YYYY-MM.json
-  return `${monthISO}.json`;
-}
-
 function legacyBlobNameForMonth(monthISO) {
   // No legado (container "certificados") salvava em chamada/YYYY-MM.json
   return `chamada/${monthISO}.json`;
 }
 
+function getBlobPath(monthISO, local, horario) {
+  const l = String(local || "").trim().replace(/[^a-zA-Z0-9]/g, "_") || "Geral";
+  const h = String(horario || "Unico").trim().replace(/[^a-zA-Z0-9]/g, "_");
+  return `${l}/${monthISO}_${h}.json`;
+}
+
 async function downloadJsonIfExists(container, blobName) {
-  const existsContainer = await container.exists();
-  if (!existsContainer) return null;
-
-  const b = container.getBlobClient(blobName);
-  const exists = await b.exists();
-  if (!exists) return null;
-
-  const buf = await b.downloadToBuffer();
   try {
+    const b = container.getBlobClient(blobName);
+    const exists = await b.exists();
+    if (!exists) return null;
+
+    const buf = await b.downloadToBuffer();
     return JSON.parse(buf.toString("utf8"));
-  } catch {
+  } catch (err) {
+    console.error(`Erro ao baixar blob ${blobName}:`, err.message);
     return null;
   }
 }
 
 /**
- * GET /chamada?month=YYYY-MM
- * Retorna o JSON salvo do mês (ou 404 se não existir)
+ * GET /chamada?month=YYYY-MM&local=...&horario=...
+ * Retorna o JSON salvo do mês e local específico
  */
 router.get("/", async (req, res) => {
   try {
     const monthISO = normalizeMonthISO(req.query.month);
+    const { local, horario } = req.query;
+
     if (!monthISO) {
       return res.status(400).json({ erro: "Parâmetro 'month' inválido." });
     }
 
-    const blobName = blobNameForMonth(monthISO);
+    const blobName = getBlobPath(monthISO, local, horario);
     let json = await downloadJsonIfExists(containerClient, blobName);
 
-    // fallback: lê do legado, para não perder dados já salvos
+    // fallback: legado (na raiz do container 'chamada' ou no container antigo)
     if (!json) {
-      const legacyName = legacyBlobNameForMonth(monthISO);
-      json = await downloadJsonIfExists(legacyContainerClient, legacyName);
+      // Tenta na raiz do container novo: YYYY-MM.json
+      json = await downloadJsonIfExists(containerClient, `${monthISO}.json`);
+      
+      if (!json) {
+        // Tenta no container legado: chamada/YYYY-MM.json
+        const legacyName = legacyBlobNameForMonth(monthISO);
+        json = await downloadJsonIfExists(legacyContainerClient, legacyName);
+      }
     }
 
     if (!json) return res.status(404).json({ exists: false });
@@ -164,13 +171,13 @@ router.get("/", async (req, res) => {
 });
 
 /**
- * PUT /chamada?month=YYYY-MM
- * Body: payload JSON (ex.: { monthISO, preenchidoPor, entries, updatedAt, ... })
- * Salva/atualiza um único arquivo por mês.
+ * PUT /chamada?month=YYYY-MM&local=...&horario=...
  */
 router.put("/", async (req, res) => {
   try {
     const monthISO = normalizeMonthISO(req.query.month);
+    const { local, horario } = req.query;
+
     if (!monthISO) {
       return res.status(400).json({ erro: "Parâmetro 'month' inválido." });
     }
@@ -182,9 +189,11 @@ router.put("/", async (req, res) => {
 
     await containerClient.createIfNotExists();
 
-    const blobName = blobNameForMonth(monthISO);
+    const blobName = getBlobPath(monthISO, local, horario);
     const sanitized = {
       ...normalizePayload(payload, monthISO),
+      local,
+      horario,
       savedAt: new Date().toISOString(),
     };
 
