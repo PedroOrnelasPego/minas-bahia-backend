@@ -247,6 +247,10 @@ router.get("/pessoas", async (_req, res) => {
       .map((r) => ({
         id: pessoaIdFromEmail(r.email),
         nome: (r.nome || "").trim(),
+        localTreino: r.localTreino || "",
+        horarioTreino: r.horarioTreino || "",
+        daAula: !!r.daAula,
+        nivelAcesso: r.nivelAcesso || "",
       }))
       .filter((r) => !!r.id)
       .sort((a, b) => (a.nome || a.id).localeCompare(b.nome || b.id));

@@ -101,6 +101,7 @@ const PERFIL_KEYS = [
 
   // novos
   "cordaVerificada",
+  "daAula",
   "certificadosTimeline",
 
   // extras
@@ -138,6 +139,7 @@ export function canonicalizePerfil(input = {}) {
     aceitouTermos: false,
 
     cordaVerificada: false,
+    daAula: false,
     certificadosTimeline: [],
   };
 
@@ -170,7 +172,11 @@ export async function listarPessoasParaChamada({ limit = 5000 } = {}) {
       SELECT
         c.id,
         c.email,
-        c.nome
+        c.nome,
+        c.localTreino,
+        c.horarioTreino,
+        c.daAula,
+        c.nivelAcesso
       FROM c
       WHERE
         c.aceitouTermos = true
@@ -200,6 +206,10 @@ export async function listarPessoasParaChamada({ limit = 5000 } = {}) {
     .map((r) => ({
       email: r.email || r.id || "",
       nome: (r.nome || "").trim(),
+      localTreino: r.localTreino || "",
+      horarioTreino: r.horarioTreino || "",
+      daAula: !!r.daAula,
+      nivelAcesso: r.nivelAcesso || "aluno",
     }))
     .filter((r) => !!r.email)
     .sort((a, b) => (a.nome || a.email).localeCompare(b.nome || b.email));
