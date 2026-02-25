@@ -256,6 +256,7 @@ router.get("/pessoas", async (_req, res) => {
       .map((r) => ({
         id: pessoaIdFromEmail(r.email),
         nome: (r.nome || "").trim(),
+        apelido: (r.apelido || "").trim(),
         localTreino: r.localTreino || "",
         horarioTreino: r.horarioTreino || "",
         daAula: !!r.daAula,
