@@ -32,6 +32,7 @@ function isExpired(ts, ttlSec = 2 * 60 * 60) {
 
 const ALLOWED_ORIGINS = new Set([
   "http://localhost:5173",
+  "http://localhost:4000",
   "https://zealous-bay-00b08311e.6.azurestaticapps.net",
   "https://icmbc.com.br",
   "https://www.icmbc.com.br",

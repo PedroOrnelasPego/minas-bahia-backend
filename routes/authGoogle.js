@@ -17,6 +17,29 @@ function cleanEmail(v) {
   return s.includes("@") ? s : null;
 }
 
+/**
+ * @swagger
+ * /auth/google:
+ *   post:
+ *     summary: Realiza o login utilizando o Token JWT fornecido pelo Google
+ *     tags: [Autenticação]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - idToken
+ *             properties:
+ *               idToken:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Sucesso ao logar, retorna o perfil
+ *       401:
+ *         description: Token falso ou inválido
+ */
 router.post("/google", async (req, res) => {
   try {
     const { idToken } = req.body;

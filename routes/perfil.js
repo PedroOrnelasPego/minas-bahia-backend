@@ -14,9 +14,17 @@ import { updateCertificado } from "../services/cosmos.js";
 
 const router = express.Router();
 
-/** GET /perfil
- * Lista todos os perfis (uso administrativo)
- * PROTEGIDO PELO gate()
+/**
+ * @swagger
+ * /perfil:
+ *   get:
+ *     summary: Lista todos os perfis cadastrados no sistema (Uso Administrativo)
+ *     tags: [Perfil (Protegido)]
+ *     responses:
+ *       200:
+ *         description: Retorna array com todos os perfis
+ *       401:
+ *         description: Acesso não autorizado (Necessita login)
  */
 router.get("/", async (_req, res) => {
   try {
@@ -28,9 +36,23 @@ router.get("/", async (_req, res) => {
   }
 });
 
-/** GET /perfil/:email
- * Busca perfil específico
- * PROTEGIDO PELO gate()
+/**
+ * @swagger
+ * /perfil/{email}:
+ *   get:
+ *     summary: Busca um perfil específico pelo ID (email)
+ *     tags: [Perfil (Protegido)]
+ *     parameters:
+ *       - in: path
+ *         name: email
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Perfil completo encontrado
+ *       404:
+ *         description: Usuário não existe
  */
 router.get("/:email", async (req, res) => {
   try {
@@ -43,9 +65,27 @@ router.get("/:email", async (req, res) => {
   }
 });
 
-/** PUT /perfil/:email
- * Atualiza/merge perfil existente
- * PROTEGIDO PELO gate()
+/**
+ * @swagger
+ * /perfil/{email}:
+ *   put:
+ *     summary: Atualiza/mergeia os dados de um perfil existente
+ *     tags: [Perfil (Protegido)]
+ *     parameters:
+ *       - in: path
+ *         name: email
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *     responses:
+ *       200:
+ *         description: Atualizado com sucesso
  */
 router.put("/:email", async (req, res) => {
   try {
@@ -160,10 +200,21 @@ router.get("/__admin/pendentes", async (_req, res) => {
   }
 });
 
-/** GET /perfil/__public/aniversarios
- * público pra listar aniversários
- * MAS continua depois do gate(), então hoje ainda exige o gate.
- * Se quiser que isso seja 100% público, pode mover pra perfilPublicoRouter também.
+/**
+ * @swagger
+ * /perfil/__public/aniversarios:
+ *   get:
+ *     summary: Lista global de aniversariantes (Pode ser filtrada por mês)
+ *     tags: [Perfil (Protegido)]
+ *     parameters:
+ *       - in: query
+ *         name: month
+ *         schema:
+ *           type: integer
+ *         description: Mês de vencimento (ex 1 a 12)
+ *     responses:
+ *       200:
+ *         description: Retorna a lista de capoeiristas que fazem aniversário
  */
 router.get("/__public/aniversarios", async (req, res) => {
   try {

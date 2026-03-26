@@ -132,8 +132,27 @@ async function downloadJsonIfExists(container, blobName) {
 }
 
 /**
- * GET /chamada?month=YYYY-MM&local=...&horario=...
- * Retorna o JSON salvo do mês e local específico
+ * @swagger
+ * /chamada:
+ *   get:
+ *     summary: Busca o registro de chamada de um mês específico
+ *     tags: [Chamada (Professores)]
+ *     parameters:
+ *       - in: query
+ *         name: month
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Mês no formato YYYY-MM
+ *       - in: query
+ *         name: local
+ *       - in: query
+ *         name: horario
+ *     responses:
+ *       200:
+ *         description: Retorna os dados com as presenças dos alunos
+ *       404:
+ *         description: Planilha daquele mês não existe
  */
 router.get("/", async (req, res) => {
   try {
@@ -245,9 +264,14 @@ router.get("/months", async (req, res) => {
 });
 
 /**
- * GET /chamada/pessoas
- * Lista mínima para a tabela: [{ id, nome }]
- * (id é pseudônimo estável do email; email não é exposto)
+ * @swagger
+ * /chamada/pessoas:
+ *   get:
+ *     summary: Lista de Todos os alunos elegíveis para a listagem da planilha de chamada
+ *     tags: [Chamada (Professores)]
+ *     responses:
+ *       200:
+ *         description: Retorna a lista contendo id criptografado, nome e apelido
  */
 router.get("/pessoas", async (_req, res) => {
   try {

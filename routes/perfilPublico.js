@@ -13,6 +13,7 @@ const router = express.Router();
 
 const ALLOWED_ORIGINS = new Set([
   "http://localhost:5173",
+  "http://localhost:4000",
   "https://zealous-bay-00b08311e.6.azurestaticapps.net",
   "https://icmbc.com.br",
   "https://www.icmbc.com.br",
@@ -49,7 +50,20 @@ function validarOrigemMinima(req, res) {
 }
 
 /**
- * GET /perfil/__check/exists-cpf
+ * @swagger
+ * /perfil/__check/exists-cpf:
+ *   get:
+ *     summary: Verifica se um CPF já possui cadastro no sistema
+ *     tags: [Perfil Público]
+ *     parameters:
+ *       - in: query
+ *         name: cpf
+ *         schema:
+ *           type: string
+ *         description: Apenas os números do CPF a ser consultado
+ *     responses:
+ *       200:
+ *         description: Retorna se existe ou não (booleano)
  */
 router.get("/__check/exists-cpf", async (req, res) => {
   try {
@@ -84,8 +98,29 @@ router.get("/__check/exists-cpf", async (req, res) => {
 });
 
 /**
- * POST /perfil
- * cadastro inicial (cria ou faz upsert)
+ * @swagger
+ * /perfil:
+ *   post:
+ *     summary: Criação ou atualização do cadastro inicial
+ *     tags: [Perfil Público]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - email
+ *             properties:
+ *               email:
+ *                 type: string
+ *               cpf:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Usuário existente foi atualizado
+ *       201:
+ *         description: Novo usuário foi cadastrado
  */
 router.post("/", async (req, res) => {
   try {

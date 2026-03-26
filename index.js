@@ -13,12 +13,16 @@ import chamadaRoutes from "./routes/chamada.js";
 // package.json com "type": "module"
 import pkg from "./package.json" with { type: "json" };
 import { gate } from "./middleware/gate.js";
+import { setupSwagger } from "./swagger.js";
 
 dotenv.config();
 
 const VERSION = pkg.version;
 const app = express();
 const PORT = process.env.PORT || 4000;
+
+// Configurar o painel do Swagger logo na raíz
+setupSwagger(app);
 
 /* ================== Middlewares globais ================== */
 app.use(
@@ -67,6 +71,7 @@ app.use("/chamada", chamadaRoutes);
 /* ================== Inicialização ================== */
 app.listen(PORT, () => {
   console.log(`✅ Servidor v${VERSION} rodando na porta ${PORT}`);
+  console.log(`📚 Documentação Swagger disponível em http://localhost:${PORT}/api-docs`);
 });
 
 /*
