@@ -97,6 +97,8 @@ const PERFIL_KEYS = [
   // permissões/estado
   "nivelAcesso",
   "permissaoEventos",
+  "permissaoAcervo",
+  "categoriasAcervo",
   "aceitouTermos",
 
   // novos
@@ -136,6 +138,8 @@ export function canonicalizePerfil(input = {}) {
 
     nivelAcesso: "visitante",
     permissaoEventos: "leitor",
+    permissaoAcervo: "leitor",
+    categoriasAcervo: [],
     aceitouTermos: false,
 
     cordaVerificada: false,
@@ -289,6 +293,34 @@ export async function listarAniversariosPorMes(month, { limit = 2000 } = {}) {
     .fetchAll();
 
   return resources.map(mapBirthdayRow).filter((x) => x.dataNascimento);
+}
+
+/**
+ * Retorna uma lista leve de integrantes (para o diretório público).
+ * Filtra apenas quem aceitou os termos e tem nome preenchido.
+ */
+export async function listarDiretorioPublico() {
+  const q = {
+    query: `
+      SELECT 
+        c.nome, 
+        c.apelido, 
+        c.email, 
+        c.whatsapp,
+        c.corda,
+        c.localTreino,
+        c.horarioTreino,
+        c.inicioNoGrupo
+      FROM c 
+      WHERE c.aceitouTermos = true
+        AND IS_DEFINED(c.nome) AND LENGTH(c.nome) > 0
+    `
+  };
+  const { resources = [] } = await container.items
+    .query(q, { enableCrossPartitionQuery: true })
+    .fetchAll();
+
+  return resources;
 }
 
 /** Busca por id/partitionKey = email. Evita query cross-partition. */

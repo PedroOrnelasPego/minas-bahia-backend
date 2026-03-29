@@ -11,6 +11,7 @@ import {
   listarAniversariosBasico,
 } from "../services/cosmos.js";
 import { updateCertificado } from "../services/cosmos.js";
+import { containerClient } from "../services/storage.js";
 
 const router = express.Router();
 
@@ -28,10 +29,27 @@ const router = express.Router();
  */
 router.get("/", async (_req, res) => {
   try {
-    const perfis = await listarPerfis();
+    const raw = await listarPerfis();
+
+    // Verificamos a existência da foto para cada perfil em paralelo
+    const perfis = await Promise.all(
+      raw.map(async (u) => {
+        const blobPath = `${u.email}/foto-perfil@1x.jpg`;
+        const blobClient = containerClient.getBlobClient(blobPath);
+        const hasFoto = await blobClient.exists();
+
+        return {
+          ...u,
+          foto: hasFoto
+            ? `https://certificadoscapoeira.blob.core.windows.net/certificados/${u.email}/foto-perfil@1x.jpg`
+            : null,
+        };
+      })
+    );
+
     res.status(200).json(perfis);
   } catch (err) {
-    console.error(err);
+    console.error("GET /perfil admin erro:", err);
     res.status(500).json({ erro: "Erro ao listar perfis." });
   }
 });
@@ -56,11 +74,22 @@ router.get("/", async (_req, res) => {
  */
 router.get("/:email", async (req, res) => {
   try {
-    const perfil = await buscarPerfil(req.params.email);
+    const { email } = req.params;
+    const perfil = await buscarPerfil(email);
     if (!perfil) return res.status(404).json({ erro: "Perfil não encontrado" });
-    res.json(perfil);
+
+    // Verificamos a existência da foto para manter o front sincronizado
+    const blobPath = `${email}/foto-perfil@1x.jpg`;
+    const hasFoto = await containerClient.getBlobClient(blobPath).exists();
+
+    res.json({
+      ...perfil,
+      foto: hasFoto
+        ? `https://certificadoscapoeira.blob.core.windows.net/certificados/${email}/foto-perfil@1x.jpg`
+        : null,
+    });
   } catch (err) {
-    console.error(err);
+    console.error("GET /perfil/:email admin erro:", err);
     res.status(500).json({ erro: "Erro ao buscar perfil." });
   }
 });

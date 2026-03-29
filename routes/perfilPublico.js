@@ -1,6 +1,7 @@
 // api/routes/perfilPublico.js
 import express from "express";
 import {
+  listarDiretorioPublico,
   buscarPerfil,
   upsertPerfil,
   atualizarPerfil,
@@ -8,6 +9,7 @@ import {
   normalizeCpf,
   hashCpf,
 } from "../services/cosmos.js";
+import { containerClient } from "../services/storage.js";
 
 const router = express.Router();
 
@@ -203,6 +205,54 @@ router.put("/self", async (req, res) => {
   } catch (err) {
     console.error("PUT /perfil/self erro:", err?.message || err);
     res.status(500).json({ erro: "Erro ao atualizar seu perfil." });
+  }
+});
+
+/**
+ * @swagger
+ * /perfil/diretorio:
+ *   get:
+ *     summary: Retorna a lista simplificada de integrantes para o diretório do grupo
+ *     tags: [Perfil Público]
+ *     responses:
+ *       200:
+ *         description: Lista de integrantes (nome, apelido, foto, telefone)
+ */
+router.get("/diretorio", async (req, res) => {
+  try {
+    const raw = await listarDiretorioPublico();
+    
+    // Filtramos administradores e nomes vazios
+    const filtered = raw.filter(u => 
+      u.nome && 
+      u.nome.trim().length > 0 && 
+      u.email !== "contato@capoeiraminasbahia.com.br"
+    );
+
+    // Verificamos a existência da foto em paralelo para evitar 404s no front
+    const list = await Promise.all(filtered.map(async (u) => {
+      const blobPath = `${u.email}/foto-perfil@1x.jpg`;
+      const blobClient = containerClient.getBlobClient(blobPath);
+      const hasFoto = await blobClient.exists();
+
+      return {
+        nome: u.nome.trim(),
+        apelido: u.apelido || "",
+        whatsapp: u.whatsapp || "",
+        corda: u.corda || "",
+        localTreino: u.localTreino || "",
+        horarioTreino: u.horarioTreino || "",
+        inicioNoGrupo: u.inicioNoGrupo || "",
+        foto: hasFoto 
+          ? `https://certificadoscapoeira.blob.core.windows.net/certificados/${u.email}/foto-perfil@1x.jpg`
+          : null
+      };
+    }));
+
+    res.json(list.sort((a, b) => a.nome.localeCompare(b.nome)));
+  } catch (err) {
+    console.error("GET /perfil/diretorio erro:", err);
+    res.status(500).json({ erro: "Erro ao carregar diretório." });
   }
 });
 
