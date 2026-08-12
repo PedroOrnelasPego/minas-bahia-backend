@@ -4,6 +4,7 @@ import cors from "cors";
 import dotenv from "dotenv";
 
 import perfilPublicoRouter from "./routes/perfilPublico.js"; // << NOVO
+import googleSheetsRouter from "./routes/googleSheets.js";
 import perfilRouter from "./routes/perfil.js"; // (agora só rotas protegidas)
 import uploadRouter from "./routes/upload.js";
 import eventosRoutes from "./routes/eventos.js";
@@ -52,6 +53,7 @@ app.get("/health", (_req, res) => res.status(200).send(`OK v${VERSION}`));
 
 // cadastro inicial e checagem de CPF (público, sem exigir cookie gate)
 app.use("/perfil", perfilPublicoRouter);
+app.use("/perfil", googleSheetsRouter);
 app.use("/upload", uploadRouter);
 
 /* ======== Travar o restante da API a partir daqui ======== */
