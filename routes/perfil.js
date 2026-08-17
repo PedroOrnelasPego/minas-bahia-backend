@@ -9,11 +9,35 @@ import {
   hashCpf,
   listarAniversariosPorMes,
   listarAniversariosBasico,
+  reorganizarMatriculas,
 } from "../services/cosmos.js";
 import { updateCertificado } from "../services/cosmos.js";
 import { containerClient } from "../services/storage.js";
 
 const router = express.Router();
+
+/**
+ * @swagger
+ * /perfil/reorganizar-matriculas:
+ *   post:
+ *     summary: Reorganiza e re-sequencia as matrículas de todos os alunos ativos (sem lacunas)
+ *     tags: [Perfil (Protegido)]
+ *     responses:
+ *       200:
+ *         description: Matrículas reorganizadas com sucesso
+ *       500:
+ *         description: Erro ao reorganizar matrículas
+ */
+router.post("/reorganizar-matriculas", async (_req, res) => {
+  try {
+    const resultado = await reorganizarMatriculas();
+    res.status(200).json(resultado);
+  } catch (err) {
+    console.error("POST /perfil/reorganizar-matriculas erro:", err);
+    res.status(500).json({ erro: "Erro ao reorganizar matrículas." });
+  }
+});
+
 
 /**
  * @swagger

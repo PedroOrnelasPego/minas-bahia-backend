@@ -475,3 +475,99 @@ export async function updateCertificado(email, certId, patch) {
   const { resource } = await container.item(email, email).replace(next);
   return resource;
 }
+
+/** Converte inicioNoGrupo/createdAt em timestamp (ms) para ordenação cronológica */
+export function parseDataEntry(val) {
+  if (!val) return null;
+  const s = String(val).trim();
+  if (!s) return null;
+
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
+    const t = Date.parse(s);
+    if (!isNaN(t)) return t;
+  }
+
+  const brMatch = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (brMatch) {
+    const dia = brMatch[1].padStart(2, "0");
+    const mes = brMatch[2].padStart(2, "0");
+    const ano = brMatch[3];
+    const t = Date.parse(`${ano}-${mes}-${dia}`);
+    if (!isNaN(t)) return t;
+  }
+
+  const yearMatch = s.match(/\b(19\d\d|20\d\d)\b/);
+  if (yearMatch) {
+    const t = Date.parse(`${yearMatch[1]}-01-01`);
+    if (!isNaN(t)) return t;
+  }
+
+  return null;
+}
+
+export function obterTimestampEntrada(perfil = {}) {
+  const tsInicio = parseDataEntry(perfil.inicioNoGrupo);
+  if (tsInicio !== null) return tsInicio;
+
+  if (perfil.createdAt) {
+    const tCreated = Date.parse(perfil.createdAt);
+    if (!isNaN(tCreated)) return tCreated;
+  }
+
+  return Infinity;
+}
+
+/** Reorganiza as matrículas de todos os alunos ativos continuamente (YYYY001, YYYY002, YYYY003...) por data de entrada no grupo */
+export async function reorganizarMatriculas() {
+  const todos = await listarPerfis();
+  // Filtrar apenas alunos/integrantes (ignorar visitantes)
+  const ativos = todos.filter(
+    (u) => u.email && (u.nivelAcesso || "visitante").toLowerCase() !== "visitante"
+  );
+
+  // Ordenar todos os alunos ativos por data de ingresso no grupo (do mais antigo para o mais recente)
+  ativos.sort((a, b) => {
+    const timeA = obterTimestampEntrada(a);
+    const timeB = obterTimestampEntrada(b);
+
+    if (timeA !== timeB) {
+      return timeA - timeB;
+    }
+
+    const catA = String(a.createdAt || "");
+    const catB = String(b.createdAt || "");
+    if (catA !== catB) return catA.localeCompare(catB);
+
+    return String(a.nome || "").localeCompare(String(b.nome || ""));
+  });
+
+  const atualizados = [];
+
+  // Atribuir matrículas com incremento global contínuo (001, 002, 003...)
+  for (let i = 0; i < ativos.length; i++) {
+    const u = ativos[i];
+    const ano = extrairAnoInicio(u);
+    const seq = String(i + 1).padStart(3, "0");
+    const novaMatricula = `${ano}${seq}`;
+
+    if (String(u.matricula || "").trim() !== novaMatricula) {
+      const matAntiga = u.matricula || null;
+      await atualizarPerfil(u.email, { matricula: novaMatricula });
+      atualizados.push({
+        email: u.email,
+        nome: u.nome || "",
+        matriculaAntiga: matAntiga,
+        matriculaNova: novaMatricula,
+      });
+    }
+  }
+
+  return {
+    ok: true,
+    totalProcessados: ativos.length,
+    totalAtualizados: atualizados.length,
+    atualizados,
+  };
+}
+
+
