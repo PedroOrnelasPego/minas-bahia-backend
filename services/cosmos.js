@@ -93,6 +93,7 @@ const PERFIL_KEYS = [
   "horarioTreino",
   "professorReferencia",
   "inicioNoGrupo",
+  "matricula",
 
   // permissões/estado
   "nivelAcesso",
@@ -135,6 +136,7 @@ export function canonicalizePerfil(input = {}) {
     horarioTreino: "",
     professorReferencia: "",
     inicioNoGrupo: "",
+    matricula: input.matricula || undefined,
 
     nivelAcesso: "visitante",
     permissaoEventos: "leitor",
@@ -323,6 +325,52 @@ export async function listarDiretorioPublico() {
   return resources;
 }
 
+/* ============================ Matrícula Utils ============================ */
+
+
+/** Extrai o ano de início de capoeira do grupo ou do createdAt */
+export function extrairAnoInicio(perfil = {}) {
+  const inicio = String(perfil.inicioNoGrupo || "").trim();
+  const matchAno = inicio.match(/\b(19\d\d|20\d\d)\b/);
+  if (matchAno) {
+    return matchAno[1];
+  }
+  if (perfil.createdAt) {
+    const d = new Date(perfil.createdAt);
+    if (!isNaN(d.getFullYear())) {
+      return String(d.getFullYear());
+    }
+  }
+  return String(new Date().getFullYear());
+}
+
+/** Calcula a próxima matrícula livre no formato YYYYXXX */
+export async function obterProximaMatricula(anoInicio) {
+  const ano = anoInicio || String(new Date().getFullYear());
+  const q = {
+    query: "SELECT c.matricula FROM c WHERE IS_DEFINED(c.matricula) AND IS_STRING(c.matricula) AND LENGTH(c.matricula) >= 7",
+  };
+  const { resources = [] } = await container.items
+    .query(q, { enableCrossPartitionQuery: true })
+    .fetchAll();
+
+  let maxSeq = 0;
+  for (const r of resources) {
+    const mat = String(r.matricula || "").trim();
+    if (mat.length >= 7) {
+      const seqStr = mat.slice(-3);
+      const seqNum = parseInt(seqStr, 10);
+      if (!isNaN(seqNum) && seqNum > maxSeq) {
+        maxSeq = seqNum;
+      }
+    }
+  }
+
+  const proxSeq = maxSeq + 1;
+  const seqPadded = String(proxSeq).padStart(3, "0");
+  return `${ano}${seqPadded}`;
+}
+
 /** Busca por id/partitionKey = email. Evita query cross-partition. */
 export async function buscarPerfil(email) {
   if (!email) return null;
@@ -335,9 +383,34 @@ export async function buscarPerfil(email) {
   }
 }
 
+/** Busca perfil por número de matrícula */
+export async function buscarPerfilPorMatricula(matricula) {
+  if (!matricula) return null;
+  const matClean = String(matricula).trim();
+  const q = {
+    query: "SELECT * FROM c WHERE c.matricula = @matricula",
+    parameters: [{ name: "@matricula", value: matClean }],
+  };
+  const { resources = [] } = await container.items
+    .query(q, { enableCrossPartitionQuery: true })
+    .fetchAll();
+
+  return resources.length > 0 ? resources[0] : null;
+}
+
 /** Upsert canônico (cria se não existir, atualiza se existir) */
 export async function upsertPerfil(perfilParcial) {
-  const perfil = canonicalizePerfil(perfilParcial);
+  const id = perfilParcial.email || perfilParcial.id;
+  const current = (await buscarPerfil(id)) || {};
+  const mergedBefore = { ...current, ...perfilParcial };
+  const nivel = (mergedBefore.nivelAcesso || "visitante").toLowerCase();
+
+  if (nivel !== "visitante" && !mergedBefore.matricula) {
+    const ano = extrairAnoInicio(mergedBefore);
+    perfilParcial.matricula = await obterProximaMatricula(ano);
+  }
+
+  const perfil = canonicalizePerfil({ ...current, ...perfilParcial });
   const { resource } = await container.items.upsert(perfil, {
     partitionKey: perfil.id,
   });
@@ -353,6 +426,14 @@ export async function atualizarPerfil(email, patch) {
     const digits = normalizeCpf(patch.cpf);
     patch.cpf = digits.length === 11 ? digits : undefined;
     patch.cpfHash = digits.length === 11 ? hashCpf(digits) : undefined;
+  }
+
+  const mergedBefore = { ...current, ...patch };
+  const nivel = (mergedBefore.nivelAcesso || "visitante").toLowerCase();
+
+  if (nivel !== "visitante" && !mergedBefore.matricula) {
+    const ano = extrairAnoInicio(mergedBefore);
+    patch.matricula = await obterProximaMatricula(ano);
   }
 
   const merged = canonicalizePerfil({ ...current, ...patch, id: email, email });

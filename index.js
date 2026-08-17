@@ -3,15 +3,13 @@ import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 
-import perfilPublicoRouter from "./routes/perfilPublico.js"; // << NOVO
-import googleSheetsRouter from "./routes/googleSheets.js";
-import perfilRouter from "./routes/perfil.js"; // (agora só rotas protegidas)
+import perfilPublicoRouter from "./routes/perfilPublico.js";
+import perfilRouter from "./routes/perfil.js";
 import uploadRouter from "./routes/upload.js";
 import eventosRoutes from "./routes/eventos.js";
 import authRoutes from "./routes/authGoogle.js";
 import chamadaRoutes from "./routes/chamada.js";
 
-// package.json com "type": "module"
 import pkg from "./package.json" with { type: "json" };
 import { gate } from "./middleware/gate.js";
 import { setupSwagger } from "./swagger.js";
@@ -28,12 +26,7 @@ setupSwagger(app);
 /* ================== Middlewares globais ================== */
 app.use(
   cors({
-    origin: [
-      "http://localhost:5173",
-      "https://zealous-bay-00b08311e.6.azurestaticapps.net",
-      "https://icmbc.com.br",
-      "https://www.icmbc.com.br",
-    ],
+    origin: true,
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
@@ -53,29 +46,31 @@ app.get("/health", (_req, res) => res.status(200).send(`OK v${VERSION}`));
 
 // cadastro inicial e checagem de CPF (público, sem exigir cookie gate)
 app.use("/perfil", perfilPublicoRouter);
-app.use("/perfil", googleSheetsRouter);
 app.use("/upload", uploadRouter);
 
 /* ======== Travar o restante da API a partir daqui ======== */
 app.use(gate());
 
 /* ================== Rotas PROTEGIDAS ================== */
-/**
- * IMPORTANTE:
- * A partir daqui o gate() já rodou,
- * então todas essas rotas vão exigir sessão válida via cookie mbc_gate,
- * exceto as que já foram expostas acima no perfilPublicoRouter.
- */
 app.use("/perfil", perfilRouter);
 app.use("/eventos", eventosRoutes);
 app.use("/chamada", chamadaRoutes);
 
 /* ================== Inicialização ================== */
-app.listen(PORT, () => {
-  console.log(`✅ Servidor v${VERSION} rodando na porta ${PORT}`);
-  console.log(`📚 Documentação Swagger disponível em http://localhost:${PORT}/api-docs`);
-});
+const server = app
+  .listen(PORT, () => {
+    console.log(`✅ Servidor v${VERSION} rodando na porta ${PORT}`);
+    console.log(`📚 Documentação Swagger disponível em http://localhost:${PORT}/api-docs`);
+  })
+  .on("error", (err) => {
+    if (err.code === "EADDRINUSE") {
+      console.error(
+        `❌ ERRO: A porta ${PORT} já está sendo usada por outro processo (ex: Docker ou outro Node).`
+      );
+      process.exit(1);
+    } else {
+      console.error("❌ ERRO no servidor:", err);
+    }
+  });
 
-/*
-
-VOOLTAR O "app.use("/upload", uploadRouter);" PARA DEBAIXO DO GATE E TESTAR!!!!!!!!!!!!!!!!!!!!!!!!!!!! E PEGAR A RESPOSTA DO CHAT GPT POR ULTIMO TAMBÉM!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! */
+export default app;

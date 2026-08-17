@@ -261,4 +261,5 @@ router.get("/__public/aniversarios", async (req, res) => {
   }
 });
 
+
 export default router;

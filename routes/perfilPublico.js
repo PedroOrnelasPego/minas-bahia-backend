@@ -3,6 +3,7 @@ import express from "express";
 import {
   listarDiretorioPublico,
   buscarPerfil,
+  buscarPerfilPorMatricula,
   upsertPerfil,
   atualizarPerfil,
   checkCpfExists,
@@ -255,5 +256,61 @@ router.get("/diretorio", async (req, res) => {
     res.status(500).json({ erro: "Erro ao carregar diretório." });
   }
 });
+
+/**
+ * @swagger
+ * /perfil/consulta-publica/{matricula}:
+ *   get:
+ *     summary: Consulta pública de perfil por matrícula (para login de apps externos)
+ *     tags: [Perfil Público]
+ *     parameters:
+ *       - in: path
+ *         name: matricula
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: "Número da matrícula do aluno (ex: 2002001)"
+ *     responses:
+ *       200:
+ *         description: Retorna os dados públicos do aluno (nome, apelido, corda, foto, id)
+ *       404:
+ *         description: Matrícula não encontrada
+ */
+async function handlerConsultaMatricula(req, res) {
+  try {
+    const { matricula } = req.params;
+    if (!matricula || !String(matricula).trim()) {
+      return res.status(400).json({ erro: "Matrícula é obrigatória." });
+    }
+
+    const perfil = await buscarPerfilPorMatricula(matricula);
+    if (!perfil) {
+      return res.status(404).json({ erro: "Matrícula não encontrada." });
+    }
+
+    // Checagem de foto
+    const blobPath = `${perfil.email}/foto-perfil@1x.jpg`;
+    const blobClient = containerClient.getBlobClient(blobPath);
+    const hasFoto = await blobClient.exists();
+
+    res.status(200).json({
+      id: perfil.email || perfil.id,
+      email: perfil.email,
+      nome: (perfil.nome || "").trim(),
+      apelido: (perfil.apelido || "").trim(),
+      corda: perfil.corda || "",
+      matricula: String(perfil.matricula || "").trim(),
+      foto: hasFoto
+        ? `https://certificadoscapoeira.blob.core.windows.net/certificados/${perfil.email}/foto-perfil@1x.jpg`
+        : null,
+    });
+  } catch (err) {
+    console.error("GET /perfil/consulta-publica erro:", err);
+    res.status(500).json({ erro: "Erro ao consultar dados da matrícula." });
+  }
+}
+
+router.get("/consulta-publica/:matricula", handlerConsultaMatricula);
+router.get("/matricula/:matricula", handlerConsultaMatricula);
 
 export default router;
