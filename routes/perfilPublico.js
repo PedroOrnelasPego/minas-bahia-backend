@@ -9,6 +9,7 @@ import {
   checkCpfExists,
   normalizeCpf,
   hashCpf,
+  isEmailAdmin,
 } from "../services/cosmos.js";
 import { containerClient } from "../services/storage.js";
 

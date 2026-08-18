@@ -114,9 +114,33 @@ const PERFIL_KEYS = [
   "_ts",
 ];
 
+/** Verifica se o email ou nome pertence à conta de administrador do sistema */
+export function isEmailAdmin(email = "", nome = "") {
+  const lowerEmail = String(email || "").toLowerCase().trim();
+  const lowerNome = String(nome || "").toLowerCase().trim();
+
+  if (
+    lowerEmail.startsWith("contatominasbahia") ||
+    lowerEmail === "contato@capoeiraminasbahia.com.br" ||
+    lowerEmail.includes("contatominasbahia")
+  ) {
+    return true;
+  }
+
+  if (lowerNome.includes("administrador minas bahia")) {
+    return true;
+  }
+
+  return false;
+}
+
 /** Retorna um objeto somente com as chaves conhecidas e defaults */
 export function canonicalizePerfil(input = {}) {
+  const isAdm = isEmailAdmin(input.email || input.id, input.nome);
+
   const defaults = {
+    id: input.email || input.id || "",
+    email: input.email || input.id || "",
     criadoVia: input.criadoVia || undefined,
     createdAt: input.createdAt || new Date().toISOString(),
 
@@ -136,7 +160,7 @@ export function canonicalizePerfil(input = {}) {
     horarioTreino: "",
     professorReferencia: "",
     inicioNoGrupo: "",
-    matricula: input.matricula || undefined,
+    matricula: isAdm ? undefined : (input.matricula || undefined),
 
     nivelAcesso: "visitante",
     permissaoEventos: "leitor",
@@ -152,11 +176,21 @@ export function canonicalizePerfil(input = {}) {
   const id = input.email || input.id;
   if (!id) throw new Error("Perfil precisa ter email/id");
 
+  if (isAdm) {
+    delete input.matricula;
+  }
+
   const src = { ...defaults, ...input, id, email: id };
+  if (isAdm) {
+    delete src.matricula;
+  }
 
   const out = {};
   for (const k of PERFIL_KEYS) if (src[k] !== undefined) out[k] = src[k];
   for (const k of Object.keys(src)) if (!(k in out)) out[k] = src[k];
+  if (isAdm) {
+    delete out.matricula;
+  }
   return out;
 }
 
@@ -348,7 +382,7 @@ export function extrairAnoInicio(perfil = {}) {
 export async function obterProximaMatricula(anoInicio) {
   const ano = anoInicio || String(new Date().getFullYear());
   const q = {
-    query: "SELECT c.matricula FROM c WHERE IS_DEFINED(c.matricula) AND IS_STRING(c.matricula) AND LENGTH(c.matricula) >= 7",
+    query: "SELECT c.matricula, c.email, c.nome FROM c WHERE IS_DEFINED(c.matricula) AND IS_STRING(c.matricula) AND LENGTH(c.matricula) >= 7",
   };
   const { resources = [] } = await container.items
     .query(q, { enableCrossPartitionQuery: true })
@@ -356,6 +390,7 @@ export async function obterProximaMatricula(anoInicio) {
 
   let maxSeq = 0;
   for (const r of resources) {
+    if (isEmailAdmin(r.email, r.nome)) continue;
     const mat = String(r.matricula || "").trim();
     if (mat.length >= 7) {
       const seqStr = mat.slice(-3);
@@ -404,10 +439,15 @@ export async function upsertPerfil(perfilParcial) {
   const current = (await buscarPerfil(id)) || {};
   const mergedBefore = { ...current, ...perfilParcial };
   const nivel = (mergedBefore.nivelAcesso || "visitante").toLowerCase();
+  const isAdm = isEmailAdmin(id, mergedBefore.nome);
 
-  if (nivel !== "visitante" && !mergedBefore.matricula) {
+  if (nivel !== "visitante" && !isAdm && !mergedBefore.matricula) {
     const ano = extrairAnoInicio(mergedBefore);
     perfilParcial.matricula = await obterProximaMatricula(ano);
+  }
+
+  if (isAdm) {
+    delete perfilParcial.matricula;
   }
 
   const perfil = canonicalizePerfil({ ...current, ...perfilParcial });
@@ -430,10 +470,15 @@ export async function atualizarPerfil(email, patch) {
 
   const mergedBefore = { ...current, ...patch };
   const nivel = (mergedBefore.nivelAcesso || "visitante").toLowerCase();
+  const isAdm = isEmailAdmin(email, mergedBefore.nome);
 
-  if (nivel !== "visitante" && !mergedBefore.matricula) {
+  if (nivel !== "visitante" && !isAdm && !mergedBefore.matricula) {
     const ano = extrairAnoInicio(mergedBefore);
     patch.matricula = await obterProximaMatricula(ano);
+  }
+
+  if (isAdm) {
+    delete patch.matricula;
   }
 
   const merged = canonicalizePerfil({ ...current, ...patch, id: email, email });
@@ -520,9 +565,24 @@ export function obterTimestampEntrada(perfil = {}) {
 /** Reorganiza as matrículas de todos os alunos ativos continuamente (YYYY001, YYYY002, YYYY003...) por data de entrada no grupo */
 export async function reorganizarMatriculas() {
   const todos = await listarPerfis();
-  // Filtrar apenas alunos/integrantes (ignorar visitantes)
+
+  // Limpar matrícula de administradores caso possuam no banco
+  const adminsComMatricula = todos.filter(
+    (u) => u.email && isEmailAdmin(u.email, u.nome) && u.matricula
+  );
+
+  for (const adminUser of adminsComMatricula) {
+    const patchObj = { ...adminUser };
+    delete patchObj.matricula;
+    await container.item(adminUser.id, adminUser.id).replace(canonicalizePerfil(patchObj));
+  }
+
+  // Filtrar apenas alunos/integrantes (ignorar visitantes e administrador)
   const ativos = todos.filter(
-    (u) => u.email && (u.nivelAcesso || "visitante").toLowerCase() !== "visitante"
+    (u) =>
+      u.email &&
+      (u.nivelAcesso || "visitante").toLowerCase() !== "visitante" &&
+      !isEmailAdmin(u.email, u.nome)
   );
 
   // Ordenar todos os alunos ativos por data de ingresso no grupo (do mais antigo para o mais recente)
