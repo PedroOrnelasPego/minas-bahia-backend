@@ -2,11 +2,11 @@
 import crypto from "crypto";
 import cookie from "cookie";
 
-const SECRET = process.env.PORTAL_GATE_SECRET || "dev-secret-change-me";
+const getSecret = () => process.env.PORTAL_GATE_SECRET || "dev-secret-change-me";
 
 // -------- helpers --------
 function hmac(data) {
-  return crypto.createHmac("sha256", SECRET).update(data).digest("hex");
+  return crypto.createHmac("sha256", getSecret()).update(data).digest("hex");
 }
 function makeToken({ ip, ua, ts }) {
   const payload = JSON.stringify({ ip, ua, ts });
@@ -120,3 +120,70 @@ export function gate() {
     return next();
   };
 }
+
+export function makeSessionToken(email, role) {
+  const payload = JSON.stringify({ email, role, ts: Math.floor(Date.now() / 1000) });
+  const sig = hmac(payload);
+  const enc = Buffer.from(payload).toString("base64url");
+  return `${enc}.${sig}`;
+}
+
+export function parseSessionToken(tok) {
+  if (!tok || !tok.includes(".")) return null;
+  const [enc, sig] = tok.split(".");
+  const payload = Buffer.from(enc, "base64url").toString("utf8");
+  if (hmac(payload) !== sig) return null;
+  try {
+    return JSON.parse(payload); // { email, role, ts }
+  } catch {
+    return null;
+  }
+}
+
+export function requireAuth() {
+  return (req, res, next) => {
+    let token = null;
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith("Bearer ")) {
+      token = authHeader.split(" ")[1];
+    }
+
+    if (!token && req.headers.cookie) {
+      try {
+        const cookies = cookie.parse(req.headers.cookie);
+        token = cookies.mbc_session;
+      } catch {
+        /* ignore */
+      }
+    }
+
+    if (!token) {
+      return res.status(401).json({ erro: "Autenticação requerida" });
+    }
+
+    const session = parseSessionToken(token);
+    if (!session) {
+      return res.status(401).json({ erro: "Sessão inválida" });
+    }
+
+    if (isExpired(session.ts, 7 * 24 * 60 * 60)) {
+      return res.status(401).json({ erro: "Sessão expirada" });
+    }
+
+    req.user = session;
+    next();
+  };
+}
+
+export function requireAdmin() {
+  return [
+    requireAuth(),
+    (req, res, next) => {
+      if (req.user?.role !== "admin") {
+        return res.status(403).json({ erro: "Acesso administrativo requerido" });
+      }
+      next();
+    }
+  ];
+}
+

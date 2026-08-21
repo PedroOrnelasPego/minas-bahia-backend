@@ -4,7 +4,7 @@
   "main": "index.js",
   "scripts": {
     "start": "node --no-deprecation index.js",
-    "test": "echo \"No tests yet\""
+    "test": "node --test middleware/gate.test.js routes/auth.test.js"
   },
   "type": "module",
   "keywords": [],

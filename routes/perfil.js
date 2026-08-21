@@ -10,9 +10,11 @@ import {
   listarAniversariosPorMes,
   listarAniversariosBasico,
   reorganizarMatriculas,
+  container,
 } from "../services/cosmos.js";
 import { updateCertificado } from "../services/cosmos.js";
 import { containerClient } from "../services/storage.js";
+import { requireAuth, requireAdmin } from "../middleware/gate.js";
 
 const router = express.Router();
 
@@ -337,7 +339,7 @@ router.get("/__admin/pendentes", async (_req, res) => {
  *       200:
  *         description: Retorna a lista de capoeiristas que fazem aniversário
  */
-router.get("/__public/aniversarios", async (req, res) => {
+router.get("/__public/aniversarios", requireAuth(), async (req, res) => {
   try {
     const month = req.query.month ? Number(req.query.month) : null;
     const limit = req.query.limit ? Number(req.query.limit) : 2000;
@@ -353,5 +355,19 @@ router.get("/__public/aniversarios", async (req, res) => {
   }
 });
 
+/**
+ * DELETE /perfil/:email
+ * Exclui o perfil do Cosmos DB de forma permanente.
+ */
+router.delete("/:email", requireAuth(), requireAdmin(), async (req, res) => {
+  try {
+    const { email } = req.params;
+    await container.item(email, email).delete();
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("DELETE /perfil/:email erro:", err?.message || err);
+    res.status(500).json({ erro: "Erro ao excluir o perfil." });
+  }
+});
 
 export default router;

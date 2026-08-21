@@ -57,20 +57,22 @@ app.use("/eventos", eventosRoutes);
 app.use("/chamada", chamadaRoutes);
 
 /* ================== Inicialização ================== */
-const server = app
-  .listen(PORT, () => {
-    console.log(`✅ Servidor v${VERSION} rodando na porta ${PORT}`);
-    console.log(`📚 Documentação Swagger disponível em http://localhost:${PORT}/api-docs`);
-  })
-  .on("error", (err) => {
-    if (err.code === "EADDRINUSE") {
-      console.error(
-        `❌ ERRO: A porta ${PORT} já está sendo usada por outro processo (ex: Docker ou outro Node).`
-      );
-      process.exit(1);
-    } else {
-      console.error("❌ ERRO no servidor:", err);
-    }
-  });
+if (process.env.NODE_ENV !== "test" && !process.env.NODE_TEST_CONTEXT && !process.execArgv.includes("--test")) {
+  app
+    .listen(PORT, () => {
+      console.log(`✅ Servidor v${VERSION} rodando na porta ${PORT}`);
+      console.log(`📚 Documentação Swagger disponível em http://localhost:${PORT}/api-docs`);
+    })
+    .on("error", (err) => {
+      if (err.code === "EADDRINUSE") {
+        console.error(
+          `❌ ERRO: A porta ${PORT} já está sendo usada por outro processo (ex: Docker ou outro Node).`
+        );
+        process.exit(1);
+      } else {
+        console.error("❌ ERRO no servidor:", err);
+      }
+    });
+}
 
 export default app;
