@@ -170,6 +170,74 @@ router.put("/:email", async (req, res) => {
   }
 });
 
+/**
+ * PUT /perfil/:email/nome
+ * Atualiza apenas o nome do perfil
+ */
+router.put("/:email/nome", async (req, res) => {
+  try {
+    const { email } = req.params;
+    const { nome } = req.body || {};
+    if (typeof nome !== "string") {
+      return res.status(400).json({ erro: "Nome é obrigatório." });
+    }
+    const salvo = await atualizarPerfil(email, { nome: nome.trim() });
+    res.json(salvo);
+  } catch (err) {
+    console.error("PUT /perfil/:email/nome erro:", err);
+    res.status(500).json({ erro: "Erro ao atualizar nome." });
+  }
+});
+
+/**
+ * PUT /perfil/:email/apelido
+ * Atualiza apenas o apelido do perfil
+ */
+router.put("/:email/apelido", async (req, res) => {
+  try {
+    const { email } = req.params;
+    const { apelido } = req.body || {};
+    const valor = typeof apelido === "string" ? apelido.trim() : "";
+    const salvo = await atualizarPerfil(email, { apelido: valor });
+    res.json(salvo);
+  } catch (err) {
+    console.error("PUT /perfil/:email/apelido erro:", err);
+    res.status(500).json({ erro: "Erro ao atualizar apelido." });
+  }
+});
+
+/**
+ * PUT /perfil/:email/data-nascimento
+ * Atualiza a data de nascimento do perfil
+ */
+router.put("/:email/data-nascimento", async (req, res) => {
+  try {
+    const { email } = req.params;
+    const { dataNascimento } = req.body || {};
+    const salvo = await atualizarPerfil(email, { dataNascimento: (dataNascimento || "").trim() });
+    res.json(salvo);
+  } catch (err) {
+    console.error("PUT /perfil/:email/data-nascimento erro:", err);
+    res.status(500).json({ erro: "Erro ao atualizar data de nascimento." });
+  }
+});
+
+/**
+ * PUT /perfil/:email/inicio-no-grupo
+ * Atualiza a data de início no grupo
+ */
+router.put("/:email/inicio-no-grupo", async (req, res) => {
+  try {
+    const { email } = req.params;
+    const { inicioNoGrupo } = req.body || {};
+    const salvo = await atualizarPerfil(email, { inicioNoGrupo: (inicioNoGrupo || "").trim() });
+    res.json(salvo);
+  } catch (err) {
+    console.error("PUT /perfil/:email/inicio-no-grupo erro:", err);
+    res.status(500).json({ erro: "Erro ao atualizar data de início no grupo." });
+  }
+});
+
 /** GET /perfil/:email/certificados
  * Timeline de certificados do usuário
  * PROTEGIDO PELO gate()
