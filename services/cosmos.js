@@ -52,9 +52,14 @@ if (uri && key) {
             }
 
             if (q && typeof q === "object" && q.parameters) {
-              const cpfParam = q.parameters.find(p => p.name === "@h");
+              const cpfHashParam = q.parameters.find(p => p.name === "@h");
+              if (cpfHashParam) {
+                const found = resources.find(r => r.cpfHash === cpfHashParam.value);
+                return { resources: found ? [{ id: found.id, email: found.email }] : [] };
+              }
+              const cpfParam = q.parameters.find(p => p.name === "@c");
               if (cpfParam) {
-                const found = resources.find(r => r.cpfHash === cpfParam.value);
+                const found = resources.find(r => r.cpf === cpfParam.value);
                 return { resources: found ? [{ id: found.id, email: found.email }] : [] };
               }
             }
@@ -207,7 +212,8 @@ export function canonicalizePerfil(input = {}) {
     genero: "",
     racaCor: "",
     dataNascimento: "",
-    whatsapp: "",
+    whatsapp: input.whatsapp || input.whatsApp || "",
+    whatsApp: input.whatsapp || input.whatsApp || "",
     contatoEmergencia: "",
     endereco: "",
     numero: "",
