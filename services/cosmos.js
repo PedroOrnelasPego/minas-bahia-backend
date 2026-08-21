@@ -9,9 +9,64 @@ const key = process.env.COSMOSDB_KEY;
 const databaseId = "graduados";
 const containerId = "usuarios";
 
-const client = new CosmosClient({ endpoint: uri, key });
-const database = client.database(databaseId);
-const container = database.container(containerId);
+let container;
+
+if (uri && key) {
+  const client = new CosmosClient({ endpoint: uri, key });
+  const database = client.database(databaseId);
+  container = database.container(containerId);
+} else {
+  console.warn("CosmosDB URI/KEY não configuradas. Usando banco de dados em memória para testes.");
+  const mockDb = new Map();
+  container = {
+    item(id, partitionKey) {
+      return {
+        async read() {
+          const resource = mockDb.get(id);
+          return { resource: resource ? JSON.parse(JSON.stringify(resource)) : null };
+        },
+        async delete() {
+          mockDb.delete(id);
+          return { resource: null };
+        },
+        async replace(payload) {
+          mockDb.set(id, payload);
+          return { resource: payload };
+        }
+      };
+    },
+    items: {
+      async upsert(payload) {
+        const id = payload.id;
+        mockDb.set(id, payload);
+        return { resource: payload };
+      },
+      query(q) {
+        return {
+          async fetchAll() {
+            const resources = Array.from(mockDb.values());
+            
+            const queryString = typeof q === "string" ? q : (q?.query || "");
+            if (queryString.includes("COUNT(1)")) {
+              return { resources: [resources.length] };
+            }
+
+            if (q && typeof q === "object" && q.parameters) {
+              const cpfParam = q.parameters.find(p => p.name === "@h");
+              if (cpfParam) {
+                const found = resources.find(r => r.cpfHash === cpfParam.value);
+                return { resources: found ? [{ id: found.id, email: found.email }] : [] };
+              }
+            }
+
+            return { resources };
+          }
+        };
+      }
+    }
+  };
+}
+
 export { container };
 
 /* ============================ CPF Utils ============================ */

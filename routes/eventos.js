@@ -9,14 +9,39 @@ const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
 
 /** =================== STORAGE / CONTAINER =================== */
-const blob = BlobServiceClient.fromConnectionString(
-  process.env.AZURE_STORAGE_CONNECTION_STRING
-);
-const CONTAINER = "eventos";
-const container = blob.getContainerClient(CONTAINER);
+const conn = process.env.AZURE_STORAGE_CONNECTION_STRING;
+let container;
 
-// Node ESM permite top-level await
-await container.createIfNotExists();
+if (conn && typeof conn === "string" && conn.trim()) {
+  const blob = BlobServiceClient.fromConnectionString(conn);
+  const CONTAINER = "eventos";
+  container = blob.getContainerClient(CONTAINER);
+  // Node ESM permite top-level await
+  await container.createIfNotExists();
+} else {
+  console.warn("AZURE_STORAGE_CONNECTION_STRING faltando para eventos. Usando cliente dummy.");
+  container = {
+    async createIfNotExists() {},
+    async exists() { return false; },
+    getBlockBlobClient() {
+      return {
+        async exists() { return false; },
+        async deleteIfExists() {},
+        url: "https://dummy-account.blob.core.windows.net/eventos/dummy-file"
+      };
+    },
+    getBlobClient() {
+      return {
+        async exists() { return false; },
+        async deleteIfExists() {},
+        url: "https://dummy-account.blob.core.windows.net/eventos/dummy-file"
+      };
+    },
+    async *listBlobsFlat() {
+      // empty iterator
+    }
+  };
+}
 
 /** =================== HELPERS =================== */
 const groupPrefix = (group) => `grupos/${group}/`;

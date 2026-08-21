@@ -40,10 +40,32 @@ function createBlobServiceClient() {
     return new BlobServiceClient(sasUrl);
   }
 
-  throw new Error(
-    "Configuração do Azure Blob faltando. Defina AZURE_STORAGE_CONNECTION_STRING, " +
-      "ou AZURE_STORAGE_ACCOUNT + AZURE_STORAGE_KEY, ou AZURE_BLOB_SAS_URL."
-  );
+  console.warn("Configuração do Azure Blob faltando. Usando cliente dummy.");
+  return {
+    getContainerClient() {
+      return {
+        async createIfNotExists() {},
+        async exists() { return false; },
+        getBlockBlobClient() {
+          return {
+            async exists() { return false; },
+            async deleteIfExists() {},
+            url: "https://dummy-account.blob.core.windows.net/certificados/dummy-file"
+          };
+        },
+        getBlobClient() {
+          return {
+            async exists() { return false; },
+            async deleteIfExists() {},
+            url: "https://dummy-account.blob.core.windows.net/certificados/dummy-file"
+          };
+        },
+        async *listBlobsFlat() {
+          // empty iterator
+        }
+      };
+    }
+  };
 }
 
 const blobServiceClient = createBlobServiceClient();

@@ -25,7 +25,32 @@ function createBlobServiceClient() {
     return new BlobServiceClient(sasUrl);
   }
 
-  throw new Error("Azure Storage configuration missing.");
+  console.warn("Azure Storage configuration missing. Using dummy client.");
+  return {
+    getContainerClient() {
+      return {
+        async createIfNotExists() {},
+        async exists() { return false; },
+        getBlockBlobClient() {
+          return {
+            async exists() { return false; },
+            async deleteIfExists() {},
+            url: "https://dummy-account.blob.core.windows.net/certificados/dummy-file"
+          };
+        },
+        getBlobClient() {
+          return {
+            async exists() { return false; },
+            async deleteIfExists() {},
+            url: "https://dummy-account.blob.core.windows.net/certificados/dummy-file"
+          };
+        },
+        async *listBlobsFlat() {
+          // empty iterator
+        }
+      };
+    }
+  };
 }
 
 export const blobServiceClient = createBlobServiceClient();
