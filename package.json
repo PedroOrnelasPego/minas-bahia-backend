@@ -1,0 +1,29 @@
+{
+  "name": "backend",
+  "version": "5.0.0",
+  "main": "index.js",
+  "scripts": {
+    "start": "node --no-deprecation index.js",
+    "test": "echo \"No tests yet\""
+  },
+  "type": "module",
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "@azure/cosmos": "^4.4.1",
+    "@azure/storage-blob": "^12.27.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.5.0",
+    "express": "^5.1.0",
+    "google-auth-library": "^10.3.0",
+    "googleapis": "^174.0.1",
+    "multer": "^2.0.1",
+    "node-fetch": "^3.3.2",
+    "sharp": "^0.33.4",
+    "swagger-jsdoc": "^6.2.8",
+    "swagger-ui-express": "^5.0.1",
+    "uuid": "^13.0.0"
+  }
+}
