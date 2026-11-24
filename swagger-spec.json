@@ -1,0 +1,310 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "API Minas Bahia",
+    "version": "1.0.0",
+    "description": "Documentação da API principal do portal"
+  },
+  "servers": [
+    {
+      "url": "http://host.docker.internal:4000",
+      "description": "Servidor de Desenvolvimento"
+    }
+  ],
+  "paths": {
+    "/auth/google": {
+      "post": {
+        "summary": "Realiza o login utilizando o Token JWT fornecido pelo Google",
+        "tags": [
+          "Autenticação"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "idToken"
+                ],
+                "properties": {
+                  "idToken": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Sucesso ao logar, retorna o perfil"
+          },
+          "401": {
+            "description": "Token falso ou inválido"
+          }
+        }
+      }
+    },
+    "/chamada": {
+      "get": {
+        "summary": "Busca o registro de chamada de um mês específico",
+        "tags": [
+          "Chamada (Professores)"
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "month",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Mês no formato YYYY-MM"
+          },
+          {
+            "in": "query",
+            "name": "local"
+          },
+          {
+            "in": "query",
+            "name": "horario"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Retorna os dados com as presenças dos alunos"
+          },
+          "404": {
+            "description": "Planilha daquele mês não existe"
+          }
+        }
+      }
+    },
+    "/chamada/pessoas": {
+      "get": {
+        "summary": "Lista de Todos os alunos elegíveis para a listagem da planilha de chamada",
+        "tags": [
+          "Chamada (Professores)"
+        ],
+        "responses": {
+          "200": {
+            "description": "Retorna a lista contendo id criptografado, nome e apelido"
+          }
+        }
+      }
+    },
+    "/perfil/reorganizar-matriculas": {
+      "post": {
+        "summary": "Reorganiza e re-sequencia as matrículas de todos os alunos ativos (sem lacunas)",
+        "tags": [
+          "Perfil (Protegido)"
+        ],
+        "responses": {
+          "200": {
+            "description": "Matrículas reorganizadas com sucesso"
+          },
+          "500": {
+            "description": "Erro ao reorganizar matrículas"
+          }
+        }
+      }
+    },
+    "/perfil": {
+      "get": {
+        "summary": "Lista todos os perfis cadastrados no sistema (Uso Administrativo)",
+        "tags": [
+          "Perfil (Protegido)"
+        ],
+        "responses": {
+          "200": {
+            "description": "Retorna array com todos os perfis"
+          },
+          "401": {
+            "description": "Acesso não autorizado (Necessita login)"
+          }
+        }
+      },
+      "post": {
+        "summary": "Criação ou atualização do cadastro inicial",
+        "tags": [
+          "Perfil Público"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "email"
+                ],
+                "properties": {
+                  "email": {
+                    "type": "string"
+                  },
+                  "cpf": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Usuário existente foi atualizado"
+          },
+          "201": {
+            "description": "Novo usuário foi cadastrado"
+          }
+        }
+      }
+    },
+    "/perfil/{email}": {
+      "get": {
+        "summary": "Busca um perfil específico pelo ID (email)",
+        "tags": [
+          "Perfil (Protegido)"
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "email",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Perfil completo encontrado"
+          },
+          "404": {
+            "description": "Usuário não existe"
+          }
+        }
+      },
+      "put": {
+        "summary": "Atualiza/mergeia os dados de um perfil existente",
+        "tags": [
+          "Perfil (Protegido)"
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "email",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Atualizado com sucesso"
+          }
+        }
+      }
+    },
+    "/perfil/__public/aniversarios": {
+      "get": {
+        "summary": "Lista global de aniversariantes (Pode ser filtrada por mês)",
+        "tags": [
+          "Perfil (Protegido)"
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "month",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Mês de vencimento (ex 1 a 12)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Retorna a lista de capoeiristas que fazem aniversário"
+          }
+        }
+      }
+    },
+    "/perfil/__check/exists-cpf": {
+      "get": {
+        "summary": "Verifica se um CPF já possui cadastro no sistema",
+        "tags": [
+          "Perfil Público"
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "cpf",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Apenas os números do CPF a ser consultado"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Retorna se existe ou não (booleano)"
+          }
+        }
+      }
+    },
+    "/perfil/diretorio": {
+      "get": {
+        "summary": "Retorna a lista simplificada de integrantes para o diretório do grupo",
+        "tags": [
+          "Perfil Público"
+        ],
+        "responses": {
+          "200": {
+            "description": "Lista de integrantes (nome, apelido, foto, telefone)"
+          }
+        }
+      }
+    },
+    "/perfil/consulta-publica/{matricula}": {
+      "get": {
+        "summary": "Consulta pública de perfil por matrícula (para login de apps externos)",
+        "tags": [
+          "Perfil Público"
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "matricula",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Número da matrícula do aluno (ex: 2002001)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Retorna os dados públicos do aluno (nome, apelido, corda, foto, id)"
+          },
+          "404": {
+            "description": "Matrícula não encontrada"
+          }
+        }
+      }
+    }
+  },
+  "components": {},
+  "tags": []
+}

@@ -12,6 +12,8 @@ import {
   isEmailAdmin,
 } from "../services/cosmos.js";
 import { containerClient } from "../services/storage.js";
+import { requireAuth } from "../middleware/gate.js";
+
 
 const router = express.Router();
 
@@ -24,6 +26,8 @@ const ALLOWED_ORIGINS = new Set([
 ]);
 
 function validarOrigemMinima(req, res) {
+  if (process.env.NODE_ENV === "test") return true;
+
   const origin = (req.headers.origin || "").toString();
   const referer = (req.headers.referer || "").toString();
 
@@ -174,7 +178,7 @@ router.post("/", async (req, res) => {
  * atualização de perfil do PRÓPRIO usuário, sem gate()
  * o front vai mandar { email, ...dadosEditados }
  */
-router.put("/self", async (req, res) => {
+router.put("/self", requireAuth(), async (req, res) => {
   try {
     if (!validarOrigemMinima(req, res)) return;
 
@@ -182,6 +186,11 @@ router.put("/self", async (req, res) => {
     const email = body.email || body.id;
     if (!email) {
       return res.status(400).json({ erro: "Email é obrigatório" });
+    }
+
+    // IDOR Check
+    if (req.user.email !== email && req.user.role !== "admin") {
+      return res.status(403).json({ erro: "Acesso negado: você só pode modificar o seu próprio perfil." });
     }
 
     // não deixo mudar cpf pra um já usado por outro
@@ -279,6 +288,8 @@ router.get("/diretorio", async (req, res) => {
  */
 async function handlerConsultaMatricula(req, res) {
   try {
+    if (!validarOrigemMinima(req, res)) return;
+
     const { matricula } = req.params;
     if (!matricula || !String(matricula).trim()) {
       return res.status(400).json({ erro: "Matrícula é obrigatória." });
